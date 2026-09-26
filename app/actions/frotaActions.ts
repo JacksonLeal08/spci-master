@@ -472,7 +472,15 @@ export async function saveOrdemServicoAction(os: Partial<OrdemServicoFrota>): Pr
       orcamentos_json: os.orcamentos_json || [],
       notas_fiscais_json: os.notas_fiscais_json || [],
       data_abertura: os.data_abertura || new Date().toISOString(),
-      data_conclusao: (statusFinal === 'CONCLUIDA' && !os.data_conclusao) ? new Date().toISOString() : os.data_conclusao
+      data_conclusao: (statusFinal === 'CONCLUIDA' && !os.data_conclusao) ? new Date().toISOString() : os.data_conclusao,
+      previsao_conclusao: os.previsao_conclusao || null,
+      garantia_meses: os.garantia_meses !== undefined ? os.garantia_meses : 3,
+      garantia_km: os.garantia_km || null,
+      motivo_recusa: os.motivo_recusa || null,
+      data_recusa: (statusFinal === 'REJEITADA' && !os.data_recusa) ? new Date().toISOString() : os.data_recusa,
+      responsavel_recusa: os.responsavel_recusa || null,
+      orcamentos_concorrentes_json: os.orcamentos_concorrentes_json || [],
+      orcamentos_aditivos_json: os.orcamentos_aditivos_json || []
     };
 
     const { data, error } = await supabase
@@ -515,7 +523,7 @@ export async function saveOrdemServicoAction(os: Partial<OrdemServicoFrota>): Pr
           ? 'EM_OFICINA_EXTERNA' 
           : 'EM_MANUTENCAO_INTERNA';
         await supabase.from('viaturas').update({ status_operacional: novoStatus }).eq('id', os.viatura_id);
-      } else if (statusFinal === 'CONCLUIDA') {
+      } else if (statusFinal === 'CONCLUIDA' || statusFinal === 'REJEITADA' || statusFinal === 'CANCELADA') {
         await supabase.from('viaturas').update({ status_operacional: 'DISPONIVEL' }).eq('id', os.viatura_id);
       }
     }

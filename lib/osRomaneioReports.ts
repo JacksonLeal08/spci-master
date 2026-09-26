@@ -80,9 +80,33 @@ export function buildRomaneioHTML({
   const custoPecas = Number(os.custo_pecas || 0);
   const custoMaoObra = Number(os.custo_mao_de_obra || 0);
   const custoPneus = Number(os.custo_pneus || 0);
-  const custoTotal = Number(os.custo_total || os.valor_estimado || (custoPecas + custoMaoObra + custoPneus));
+  
+  // Aditivos complementares
+  const aditivos = ((os as any).orcamentos_aditivos_json || []) as any[];
+  const aditivosAprovados = aditivos.filter(a => a.status === 'APROVADO');
+  const custoAditivos = aditivosAprovados.reduce((sum, a) => sum + Number(a.valor_total || 0), 0);
+
+  const custoTotal = Number(os.custo_total || os.valor_estimado || (custoPecas + custoMaoObra + custoPneus + custoAditivos));
 
   const valorFormatado = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  // Prazo e Garantia
+  const previsaoConclusaoFormatada = (os as any).previsao_conclusao 
+    ? new Date((os as any).previsao_conclusao).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+    : 'Não estipulada';
+
+  const garantiaMeses = (os as any).garantia_meses;
+  const garantiaKm = (os as any).garantia_km;
+  let garantiaTxt = 'Padrão Comercial (3 meses)';
+  if (garantiaMeses || garantiaKm) {
+    const partes: string[] = [];
+    if (garantiaMeses) partes.push(`${garantiaMeses} meses`);
+    if (garantiaKm) partes.push(`${Number(garantiaKm).toLocaleString('pt-BR')} km`);
+    garantiaTxt = partes.join(' ou ');
+  }
+
+  // Identificação de OS Não Autorizada / Rejeitada
+  const isRejeitada = os.status_os === 'REJEITADA' || (os as any).status === 'REJEITADA';
 
   // Componentes e itens anatômicos
   const componentes: SubcomponenteSelecionado[] = (os.itens_componentes_json || []) as SubcomponenteSelecionado[];
@@ -353,6 +377,28 @@ export function buildRomaneioHTML({
         </div>
       </div>
 
+      ${isRejeitada ? `
+      <!-- ALERTA DE ORDEM NÃO AUTORIZADA -->
+      <div style="background: #fef2f2; border: 1.5px solid #ef4444; border-radius: 6px; padding: 7px 10px; margin-bottom: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: #991b1b; font-weight: 900; font-size: 9.5px; text-transform: uppercase;">
+            ⛔ ORDEM DE SERVIÇO NÃO AUTORIZADA / RECUSADA
+          </span>
+          <span style="font-size: 8px; color: #b91c1c; font-weight: 700;">
+            ${(os as any).data_recusa ? new Date((os as any).data_recusa).toLocaleDateString('pt-BR') : 'Reprovação Registrada'}
+          </span>
+        </div>
+        <div style="font-size: 8.5px; color: #7f1d1d; margin-top: 3px; line-height: 1.3;">
+          <strong>Justificativa Técnica:</strong> ${(os as any).motivo_recusa || 'Não autorizada pela gestão técnica.'}
+        </div>
+        ${(os as any).responsavel_recusa ? `
+          <div style="font-size: 8px; color: #991b1b; margin-top: 2px;">
+            Responsável pelo Parecer: <strong>${(os as any).responsavel_recusa}</strong>
+          </div>
+        ` : ''}
+      </div>
+      ` : ''}
+
       <!-- BLOCO BILATERAL: VEÍCULO & OFICINA DESTINO -->
       <div class="two-cols">
         <!-- Bloco Veículo -->
@@ -394,12 +440,12 @@ export function buildRomaneioHTML({
         <!-- Bloco Oficina Destino -->
         <div class="card-box">
           <div style="font-size: 9px; font-weight: 800; text-transform: uppercase; color: #2563eb; margin-bottom: 4px; display: flex; justify-content: space-between;">
-            <span>🏢 2. DESTINO & EXECUÇÃO</span>
+            <span>🏢 2. DESTINO, PRAZOS & GARANTIA</span>
             <span style="color: #475569; font-size: 8px;">ORIGEM: ${os.tipo_os || 'EXTERNA'}</span>
           </div>
           <table class="meta-table">
             <tr>
-              <td class="label">Oficina / Estabelecimento:</td>
+              <td class="label">Oficina / Local:</td>
               <td class="val" style="font-weight: 800; color: #1e293b;">${oficina?.nome_fantasia || oficina?.razao_social || (os.tipo_os === 'INTERNA' ? 'Oficina Interna da Base SIGER' : 'Oficina Homologada Externa')}</td>
             </tr>
             <tr>
@@ -407,16 +453,16 @@ export function buildRomaneioHTML({
               <td class="val" style="font-family: monospace;">${oficina?.cnpj || 'Homologada no Contrato'}</td>
             </tr>
             <tr>
-              <td class="label">Contato / Telefone:</td>
-              <td class="val">${oficina?.telefone || '(94) 99100-0000'}</td>
+              <td class="label">Natureza / Status:</td>
+              <td class="val" style="font-weight: 700;">${os.tipo_manutencao || os.natureza_manutencao || 'CORRETIVA'} • <span style="color: ${isRejeitada ? '#dc2626' : '#15803d'}">${os.status_os || os.status || 'ABERTA'}</span></td>
             </tr>
             <tr>
-              <td class="label">Natureza da Manutenção:</td>
-              <td class="val" style="font-weight: 700;">${os.tipo_manutencao || os.natureza_manutencao || 'CORRETIVA'}</td>
+              <td class="label">Previsão Conclusão:</td>
+              <td class="val" style="font-weight: 700; color: #0f172a;">${previsaoConclusaoFormatada}</td>
             </tr>
             <tr>
-              <td class="label">Status da Ordem:</td>
-              <td class="val" style="font-weight: 800; color: #15803d;">${os.status_os || os.status || 'ABERTA'}</td>
+              <td class="label">Garantia Assegurada:</td>
+              <td class="val" style="font-weight: 700; color: #166534;">🛡️ ${garantiaTxt}</td>
             </tr>
             <tr>
               <td class="label">Etapa do Workflow:</td>
@@ -448,7 +494,7 @@ export function buildRomaneioHTML({
 
       <!-- SEÇÃO 4: RESUMO FINANCEIRO & RATEIO -->
       <div class="section-title">💰 4. ESTIMATIVA ORÇAMENTÁRIA & RATEIO DE CUSTOS</div>
-      <div class="financial-grid">
+      <div class="financial-grid" style="grid-template-columns: repeat(${custoAditivos > 0 ? 5 : 4}, 1fr);">
         <div class="financial-box">
           <div class="lbl">Peças & Componentes</div>
           <div class="val">${valorFormatado(custoPecas)}</div>
@@ -461,8 +507,14 @@ export function buildRomaneioHTML({
           <div class="lbl">Pneus & Borracharia</div>
           <div class="val">${valorFormatado(custoPneus)}</div>
         </div>
+        ${custoAditivos > 0 ? `
+        <div class="financial-box" style="border-color: #3b82f6; background: #eff6ff;">
+          <div class="lbl" style="color: #1d4ed8;">Aditivos Complementares</div>
+          <div class="val" style="color: #1d4ed8;">+ ${valorFormatado(custoAditivos)}</div>
+        </div>
+        ` : ''}
         <div class="financial-box highlight">
-          <div class="lbl">Total Estimado da O.S.</div>
+          <div class="lbl">Total da O.S.</div>
           <div class="val">${valorFormatado(custoTotal)}</div>
         </div>
       </div>
@@ -605,11 +657,48 @@ export async function generateRomaneioPDFBlob(
   doc.line(10, y, w - 10, y);
   y += 4;
 
+  // Dados de Prazo, Garantia e Auditoria de Recusa
+  const previsaoTxt = (os as any).previsao_conclusao
+    ? new Date((os as any).previsao_conclusao).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+    : 'A definir';
+
+  const gMeses = (os as any).garantia_meses;
+  const gKm = (os as any).garantia_km;
+  let garantiaPdfTxt = 'Padrão (3m)';
+  if (gMeses || gKm) {
+    const parts: string[] = [];
+    if (gMeses) parts.push(`${gMeses}m`);
+    if (gKm) parts.push(`${Number(gKm).toLocaleString('pt-BR')}km`);
+    garantiaPdfTxt = parts.join(' / ');
+  }
+
+  const isRejeitada = os.status_os === 'REJEITADA' || (os as any).status === 'REJEITADA';
+
+  if (isRejeitada) {
+    doc.setFillColor(254, 242, 242);
+    doc.setDrawColor(239, 68, 68);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(10, y, w - 20, 8.5, 1.5, 1.5, 'FD');
+    doc.setTextColor(185, 28, 28);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.text('ORDEM NÃO AUTORIZADA / RECUSADA:', 13, y + 3.8);
+    doc.setFont('helvetica', 'normal');
+    const motivoRec = ((os as any).motivo_recusa || 'Sem parecer técnico informado').slice(0, 75);
+    doc.text(`Motivo: ${motivoRec}`, 58, y + 3.8);
+    const recInfo = `${(os as any).responsavel_recusa ? `Por: ${(os as any).responsavel_recusa} ` : ''}${(os as any).data_recusa ? `em ${new Date((os as any).data_recusa).toLocaleDateString('pt-BR')}` : ''}`;
+    if (recInfo) {
+      doc.setFontSize(5.5);
+      doc.text(recInfo, 13, y + 7);
+    }
+    y += 10.5;
+  }
+
   // Grid 2 Colunas: Viatura e Oficina
   const colW = (w - 20 - 4) / 2;
   const col1X = 10;
   const col2X = 10 + colW + 4;
-  const cardH = 28;
+  const cardH = 31;
 
   // Card 1: Viatura
   doc.setFillColor(248, 250, 252);
@@ -645,30 +734,35 @@ export async function generateRomaneioPDFBlob(
   doc.text(`Odômetro Entrada: ${odomTxt} km`, col1X + 4, y + 20);
   doc.text(`Base Operacional: ${viatura?.contrato_id || os.contrato_id || 'PARAUAPEBAS'}`, col1X + 4, y + 25);
 
-  // Card 2: Oficina
+  // Card 2: Oficina, Prazos & Garantia
   doc.setFillColor(248, 250, 252);
   doc.roundedRect(col2X, y, colW, cardH, 2, 2, 'FD');
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(15, 23, 42);
-  doc.text('2. DESTINO & EXECUÇÃO', col2X + 4, y + 5);
+  doc.text('2. DESTINO, PRAZOS & GARANTIA', col2X + 4, y + 5);
 
-  const ofcNome = oficina?.nome_fantasia || oficina?.razao_social || (os.tipo_os === 'INTERNA' ? 'Oficina Interna da Base SIGER' : 'Oficina Homologada Externa');
-  doc.setFontSize(7);
+  const ofcNome = oficina?.nome_fantasia || oficina?.razao_social || (os.tipo_os === 'INTERNA' ? 'Oficina Interna Base SIGER' : 'Oficina Homologada Externa');
+  doc.setFontSize(6.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text('Estabelecimento:', col2X + 4, y + 10);
+  doc.text('Local:', col2X + 4, y + 10);
   doc.setTextColor(15, 23, 42);
   doc.setFont('helvetica', 'bold');
-  doc.text(ofcNome.slice(0, 32), col2X + 27, y + 10);
+  doc.text(ofcNome.slice(0, 32), col2X + 15, y + 10);
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text(`CNPJ: ${oficina?.cnpj || 'Cadastrada no Contrato'}`, col2X + 4, y + 15);
-  doc.text(`Contato: ${oficina?.telefone || '(94) 99100-0000'}`, col2X + 4, y + 20);
+  doc.text(`CNPJ: ${oficina?.cnpj || 'Cadastrada no Contrato'}`, col2X + 4, y + 14.5);
   const natTxt = os.tipo_manutencao || os.natureza_manutencao || 'CORRETIVA';
-  doc.text(`Natureza: ${natTxt} (${os.tipo_os || 'EXTERNA'})`, col2X + 4, y + 25);
+  doc.text(`Tipo / Status: ${natTxt} • ${os.status_os || os.status || 'ABERTA'}`, col2X + 4, y + 19);
+  
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Previsão Término: ${previsaoTxt}`, col2X + 4, y + 23.5);
+  doc.setTextColor(22, 101, 52);
+  doc.text(`Garantia Assegurada: ${garantiaPdfTxt}`, col2X + 4, y + 28);
 
   y += cardH + 4;
 
@@ -774,18 +868,34 @@ export async function generateRomaneioPDFBlob(
   y += 17;
 
   // Resumo Financeiro
-  const fBoxW = (w - 20 - 9) / 4;
   const custoPecas = Number(os.custo_pecas || 0);
   const custoMaoObra = Number(os.custo_mao_de_obra || 0);
   const custoPneus = Number(os.custo_pneus || 0);
-  const custoTotal = Number(os.custo_total || os.valor_estimado || (custoPecas + custoMaoObra + custoPneus));
+  const aditivos = ((os as any).orcamentos_aditivos_json || []) as any[];
+  const aditivosAprovados = aditivos.filter(a => a.status === 'APROVADO');
+  const custoAditivos = aditivosAprovados.reduce((sum, a) => sum + Number(a.valor_total || 0), 0);
+  const custoTotal = Number(os.custo_total || os.valor_estimado || (custoPecas + custoMaoObra + custoPneus + custoAditivos));
 
-  const fBoxes = [
+  const fBoxes: Array<{ lbl: string; val: string; highlight?: boolean }> = [
     { lbl: 'PEÇAS', val: custoPecas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) },
     { lbl: 'MÃO DE OBRA', val: custoMaoObra.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) },
-    { lbl: 'PNEUS', val: custoPneus.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) },
-    { lbl: 'TOTAL ESTIMADO', val: custoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), highlight: true }
+    { lbl: 'PNEUS', val: custoPneus.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
   ];
+
+  if (custoAditivos > 0) {
+    fBoxes.push({
+      lbl: 'ADITIVOS',
+      val: custoAditivos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    });
+  }
+
+  fBoxes.push({
+    lbl: 'TOTAL DA O.S.',
+    val: custoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+    highlight: true
+  });
+
+  const fBoxW = (w - 20 - (fBoxes.length - 1) * 3) / fBoxes.length;
 
   fBoxes.forEach((b, i) => {
     const bx = 10 + (fBoxW + 3) * i;
@@ -798,7 +908,7 @@ export async function generateRomaneioPDFBlob(
     doc.setTextColor(100, 116, 139);
     doc.text(b.lbl, bx + fBoxW / 2, y + 3.8, { align: 'center' });
 
-    doc.setFontSize(7.5);
+    doc.setFontSize(7);
     doc.setTextColor(b.highlight ? 21 : 15, b.highlight ? 128 : 23, b.highlight ? 61 : 42);
     doc.text(b.val, bx + fBoxW / 2, y + 8.5, { align: 'center' });
   });
@@ -903,11 +1013,28 @@ export async function shareRomaneioWhatsAppHybrid(
   const linkRomaneio = `${baseUrl}/frota/os?id=${os.id || os.numero_os}&view=romaneio`;
   const linkAprovacao = `${baseUrl}/frota/os?id=${os.id || os.numero_os}&action=approve`;
 
+  const isRejeitada = os.status_os === 'REJEITADA' || (os as any).status === 'REJEITADA';
+  const previsaoWpp = (os as any).previsao_conclusao 
+    ? new Date((os as any).previsao_conclusao).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+    : 'A definir';
+
+  const gMeses = (os as any).garantia_meses;
+  const gKm = (os as any).garantia_km;
+  let garantiaWpp = 'Padrão (3 meses)';
+  if (gMeses || gKm) {
+    const parts: string[] = [];
+    if (gMeses) parts.push(`${gMeses} meses`);
+    if (gKm) parts.push(`${Number(gKm).toLocaleString('pt-BR')} km`);
+    garantiaWpp = parts.join(' ou ');
+  }
+
   const baseText = customMessage || `🚨 *ORDEM DE SERVIÇO & ROMANEIO - SIGER MASTER*
 📋 *Protocolo:* ${proto.shortCode}
 🚒 *Viatura:* ${viaturaLabel}
 ${prioridadeEmoji} *Criticidade:* ${os.prioridade || 'NORMAL'}
 🏢 *Oficina:* ${oficinaNome}
+${isRejeitada ? `⛔ *Status:* NÃO AUTORIZADA / RECUSADA\n⚠️ *Motivo da Recusa:* ${(os as any).motivo_recusa || 'Não autorizada pela gestão técnica'}\n` : ''}⏳ *Previsão de Término:* ${previsaoWpp}
+🛡️ *Garantia Assegurada:* ${garantiaWpp}
 💰 *Orçamento Estimado:* ${valorTotal}
 
 📄 *Visualizar Romaneio Online:*

@@ -11,7 +11,9 @@ import {
   StatusOrdemServico,
   ItemChecklistOs,
   NotaFiscalAnexo,
-  DocumentoAnexo
+  DocumentoAnexo,
+  OrcamentoConcorrente,
+  OrcamentoAditivo
 } from '@/lib/types/frota';
 import { saveOrdemServicoAction, listOficinasAction } from '@/app/actions/frotaActions';
 import { soundNotificationService } from '@/lib/soundNotificationService';
@@ -43,7 +45,13 @@ import {
   Paperclip,
   Layers,
   Calendar,
-  AlertTriangle
+  AlertTriangle,
+  ShieldCheck,
+  Award,
+  Ban,
+  TrendingUp,
+  PlusCircle,
+  CalendarCheck
 } from 'lucide-react';
 import { VehicleAnatomySelector } from './VehicleAnatomySelector';
 import { SubcomponenteSelecionado, formatarResumoAnatomico } from '@/lib/types/vehicleAnatomy';
@@ -68,6 +76,7 @@ const ETAPAS_STATUS: { id: StatusOrdemServico; label: string; desc: string; icon
   { id: 'APROVADA', label: 'Aprovada', desc: 'Autorizada p/ execução', icon: CheckCircle2, color: 'text-indigo-500 bg-indigo-500/10 border-indigo-500/30' },
   { id: 'EM_EXECUCAO', label: 'Em Execução', desc: 'Na oficina / base', icon: Wrench, color: 'text-orange-500 bg-orange-500/10 border-orange-500/30' },
   { id: 'CONCLUIDA', label: 'Concluída', desc: 'Notas e rateio ok', icon: Receipt, color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30' },
+  { id: 'REJEITADA', label: 'Não Autorizada', desc: 'Reparos recusados', icon: Ban, color: 'text-rose-600 bg-rose-600/10 border-rose-600/30' },
 ];
 
 export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
@@ -104,6 +113,28 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
   const [subcomponentes, setSubcomponentes] = useState<SubcomponenteSelecionado[]>([]);
   const [resumoAnatomico, setResumoAnatomico] = useState<string>('');
   const [isRomaneioOpen, setIsRomaneioOpen] = useState<boolean>(false);
+
+  // Prazo de Término e Garantia Geral do Serviço
+  const [previsaoConclusao, setPrevisaoConclusao] = useState<string>('');
+  const [garantiaMeses, setGarantiaMeses] = useState<string>('');
+  const [garantiaKm, setGarantiaKm] = useState<string>('');
+  const [motivoRecusa, setMotivoRecusa] = useState<string>('');
+
+  // Mapa Comparativo de Cotações (Até 3 Oficinas)
+  const [orcamentosConcorrentes, setOrcamentosConcorrentes] = useState<OrcamentoConcorrente[]>([]);
+  const [novaCotFornecedor, setNovaCotFornecedor] = useState<string>('');
+  const [novaCotValor, setNovaCotValor] = useState<string>('');
+  const [novaCotPrazoDias, setNovaCotPrazoDias] = useState<string>('');
+  const [novaCotGarantiaMeses, setNovaCotGarantiaMeses] = useState<string>('');
+  const [novaCotGarantiaKm, setNovaCotGarantiaKm] = useState<string>('');
+  const [novaCotCondicoes, setNovaCotCondicoes] = useState<string>('');
+
+  // Orçamentos Complementares / Aditivos
+  const [orcamentosAditivos, setOrcamentosAditivos] = useState<OrcamentoAditivo[]>([]);
+  const [novoAditDescricao, setNovoAditDescricao] = useState<string>('');
+  const [novoAditValor, setNovoAditValor] = useState<string>('');
+  const [novoAditPrazoDias, setNovoAditPrazoDias] = useState<string>('');
+  const [novoAditMotivo, setNovoAditMotivo] = useState<string>('');
 
   // Rateio de Custos
   const [custoPecas, setCustoPecas] = useState<string>('0');
@@ -175,6 +206,14 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
       setOrcamentos(osToEdit.orcamentos_json || []);
       setNotasFiscais(osToEdit.notas_fiscais_json || []);
       setComprovantesUrls(osToEdit.comprovantes_urls || []);
+
+      // Prazos, Garantias e Concorrência
+      setPrevisaoConclusao(osToEdit.previsao_conclusao ? new Date(osToEdit.previsao_conclusao).toISOString().slice(0, 16) : '');
+      setGarantiaMeses(osToEdit.garantia_meses ? String(osToEdit.garantia_meses) : '');
+      setGarantiaKm(osToEdit.garantia_km ? String(osToEdit.garantia_km) : '');
+      setMotivoRecusa(osToEdit.motivo_recusa || '');
+      setOrcamentosConcorrentes(osToEdit.orcamentos_concorrentes_json || []);
+      setOrcamentosAditivos(osToEdit.orcamentos_aditivos_json || []);
     } else {
       setNumeroOs(`OS-${Date.now().toString().slice(-6)}`);
       setDataAbertura(new Date().toISOString().slice(0, 16));
@@ -193,15 +232,29 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
       setOrcamentos([]);
       setNotasFiscais([]);
       setComprovantesUrls([]);
+
+      // Prazos e Garantias padrão
+      setPrevisaoConclusao('');
+      setGarantiaMeses('');
+      setGarantiaKm('');
+      setMotivoRecusa('');
+      setOrcamentosConcorrentes([]);
+      setOrcamentosAditivos([]);
     }
   }, [osToEdit, isOpen, viatura, viaturas]);
+
+  const totalAditivosAprovados = useMemo(() => {
+    return orcamentosAditivos
+      .filter(a => a.status === 'APROVADO')
+      .reduce((acc, a) => acc + (Number(a.valor) || 0), 0);
+  }, [orcamentosAditivos]);
 
   const custoTotal = useMemo(() => {
     const p = parseFloat(custoPecas) || 0;
     const m = parseFloat(custoMaoObra) || 0;
     const pn = parseFloat(custoPneus) || 0;
-    return (p + m + pn).toFixed(2);
-  }, [custoPecas, custoMaoObra, custoPneus]);
+    return (p + m + pn + totalAditivosAprovados).toFixed(2);
+  }, [custoPecas, custoMaoObra, custoPneus, totalAditivosAprovados]);
 
   if (!isOpen) return null;
 
@@ -337,6 +390,130 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
     setIsRomaneioOpen(true);
   };
 
+  // Handlers para Mapa Comparativo de Cotações
+  const handleAddCotacao = () => {
+    if (!novaCotFornecedor.trim()) {
+      alert('Informe o nome da oficina ou prestador concorrente.');
+      return;
+    }
+    const val = parseFloat(novaCotValor) || 0;
+    if (val <= 0) {
+      alert('Informe o valor total proposto pela oficina.');
+      return;
+    }
+
+    if (orcamentosConcorrentes.length >= 3) {
+      alert('Limite de até 3 cotações concorrentes atingido para esta O.S.');
+      return;
+    }
+
+    const nova: OrcamentoConcorrente = {
+      id: Date.now().toString(),
+      oficina_nome: novaCotFornecedor.trim(),
+      valor_total: val,
+      prazo_dias: parseInt(novaCotPrazoDias) || undefined,
+      previsao_entrega: novaCotPrazoDias ? new Date(Date.now() + (parseInt(novaCotPrazoDias) * 86400000)).toISOString().slice(0, 10) : undefined,
+      garantia_meses: parseInt(novaCotGarantiaMeses) || undefined,
+      garantia_km: parseInt(novaCotGarantiaKm) || undefined,
+      condicoes_pagamento: novaCotCondicoes.trim() || undefined,
+      selecionada: orcamentosConcorrentes.length === 0 // Primeira cotação fica pré-selecionada por padrão
+    };
+
+    setOrcamentosConcorrentes(prev => [...prev, nova]);
+    setNovaCotFornecedor('');
+    setNovaCotValor('');
+    setNovaCotPrazoDias('');
+    setNovaCotGarantiaMeses('');
+    setNovaCotGarantiaKm('');
+    setNovaCotCondicoes('');
+    soundNotificationService.playSuccessSound();
+  };
+
+  const handleSelectVencedora = (cotacaoId?: string) => {
+    if (!cotacaoId) return;
+    const atualizadas = orcamentosConcorrentes.map(c => ({
+      ...c,
+      selecionada: c.id === cotacaoId
+    }));
+    setOrcamentosConcorrentes(atualizadas);
+
+    const vencedora = atualizadas.find(c => c.id === cotacaoId);
+    if (vencedora) {
+      // Sincroniza garantia e prazo na OS principal
+      if (vencedora.garantia_meses) setGarantiaMeses(String(vencedora.garantia_meses));
+      if (vencedora.garantia_km) setGarantiaKm(String(vencedora.garantia_km));
+      if (vencedora.prazo_dias) {
+        const d = new Date(Date.now() + vencedora.prazo_dias * 86400000);
+        setPrevisaoConclusao(d.toISOString().slice(0, 16));
+      }
+      // Se houver oficina correspondente cadastrada no sistema, vincula
+      const matchOficina = oficinas.find(o => 
+        o.razao_social.toLowerCase().includes(vencedora.oficina_nome.toLowerCase()) ||
+        (o.nome_fantasia && o.nome_fantasia.toLowerCase().includes(vencedora.oficina_nome.toLowerCase()))
+      );
+      if (matchOficina) setOficinaId(matchOficina.id);
+
+      soundNotificationService.playSuccessSound();
+    }
+  };
+
+  const handleRemoveCotacao = (cotacaoId?: string) => {
+    if (!cotacaoId) return;
+    setOrcamentosConcorrentes(prev => prev.filter(c => c.id !== cotacaoId));
+  };
+
+  // Handlers para Orçamentos Aditivos / Complementares
+  const handleAddAditivo = () => {
+    if (!novoAditDescricao.trim()) {
+      alert('Informe a descrição do serviço adicional / defeito complementar identificado.');
+      return;
+    }
+    const val = parseFloat(novoAditValor) || 0;
+    if (val <= 0) {
+      alert('Informe o valor adicional deste aditivo.');
+      return;
+    }
+
+    const novoAditivo: OrcamentoAditivo = {
+      id: Date.now().toString(),
+      numero_aditivo: orcamentosAditivos.length + 1,
+      descricao: novoAditDescricao.trim(),
+      valor: val,
+      prazo_adicional_dias: parseInt(novoAditPrazoDias) || 0,
+      motivo: novoAditMotivo.trim() || 'Defeito oculto identificado durante a desmontagem dos componentes.',
+      data_solicitacao: new Date().toISOString(),
+      status: 'APROVADO',
+      aprovado_por: userProfile?.name || currentUser?.displayName || 'Gestor de Frota SPCI'
+    };
+
+    setOrcamentosAditivos(prev => [...prev, novoAditivo]);
+    setNovoAditDescricao('');
+    setNovoAditValor('');
+    setNovoAditPrazoDias('');
+    setNovoAditMotivo('');
+    soundNotificationService.playSuccessSound();
+  };
+
+  const handleToggleAditivoStatus = (aditivoId?: string, novoStatus: 'SOLICITADO' | 'APROVADO' | 'REJEITADO' | 'PENDENTE' = 'APROVADO') => {
+    if (!aditivoId) return;
+    setOrcamentosAditivos(prev => prev.map(a => {
+      if (a.id === aditivoId) {
+        return {
+          ...a,
+          status: novoStatus,
+          aprovado_por: novoStatus === 'APROVADO' ? (userProfile?.name || currentUser?.displayName || 'Gestor de Frota SPCI') : undefined,
+          data_aprovacao: novoStatus === 'APROVADO' ? new Date().toISOString() : undefined
+        };
+      }
+      return a;
+    }));
+  };
+
+  const handleRemoveAditivo = (aditivoId?: string) => {
+    if (!aditivoId) return;
+    setOrcamentosAditivos(prev => prev.filter(a => a.id !== aditivoId));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!descricao.trim()) {
@@ -347,6 +524,13 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
     const viatId = activeViatura?.id || selectedViaturaId;
     if (!viatId) {
       alert('Selecione uma viatura para vincular a esta Ordem de Serviço.');
+      return;
+    }
+
+    // Validação obrigatória de justificativa de recusa
+    if (status === 'REJEITADA' && !motivoRecusa.trim()) {
+      alert('Atenção: Para marcar a O.S. como NÃO AUTORIZADA / RECUSADA, é obrigatório informar o motivo e a justificativa da recusa.');
+      setModalTab('DADOS');
       return;
     }
 
@@ -398,7 +582,16 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
         comprovantes_urls: comprovantesUrls,
         responsavel_abertura: osToEdit?.responsavel_abertura || userProfile?.name || currentUser?.displayName || 'Inspetor de Frotas',
         data_abertura: dataAbertura ? new Date(dataAbertura).toISOString() : (osToEdit?.data_abertura || new Date().toISOString()),
-        data_conclusao: status === 'CONCLUIDA' ? (osToEdit?.data_conclusao || new Date().toISOString()) : null
+        data_conclusao: status === 'CONCLUIDA' ? (osToEdit?.data_conclusao || new Date().toISOString()) : null,
+        // Prazos, Garantias, Recusa e Cotações
+        previsao_conclusao: previsaoConclusao ? new Date(previsaoConclusao).toISOString() : null,
+        garantia_meses: parseInt(garantiaMeses) || null,
+        garantia_km: parseInt(garantiaKm) || null,
+        motivo_recusa: motivoRecusa.trim() || null,
+        data_recusa: status === 'REJEITADA' ? (osToEdit?.data_recusa || new Date().toISOString()) : null,
+        responsavel_recusa: status === 'REJEITADA' ? (osToEdit?.responsavel_recusa || userProfile?.name || currentUser?.displayName || 'Gestor de Frota SPCI') : null,
+        orcamentos_concorrentes_json: orcamentosConcorrentes,
+        orcamentos_aditivos_json: orcamentosAditivos
       });
 
       if (res.success && res.data) {
@@ -881,12 +1074,338 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* ==================================================================== */}
+              {/* PAINEL DE CRONOGRAMA, PRAZOS & TERMO DE GARANTIA DOS SERVIÇOS        */}
+              {/* ==================================================================== */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-[#181A1E] border border-slate-200 dark:border-[#282A2F] space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-[#282A2F] pb-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-[#B7F365] font-mono flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-[#68D346]" />
+                    Cronograma, Prazos & Garantia do Serviço
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-mono">
+                    SLA & Proteção Pós-Entrega
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                  {/* Prazo Previsto de Conclusão */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-600 dark:text-slate-400 mb-1 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-cyan-500" />
+                      Previsão de Término / Entrega
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={previsaoConclusao}
+                      onChange={(e) => setPrevisaoConclusao(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl p-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white outline-none focus:border-[#68D346]"
+                    />
+                    <span className="text-[8.5px] text-slate-400 mt-1 block">
+                      Prazo prometido no orçamento aprovado.
+                    </span>
+                  </div>
+
+                  {/* Garantia em Meses */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-600 dark:text-slate-400 mb-1 flex items-center gap-1">
+                      <CalendarCheck className="w-3 h-3 text-emerald-500" />
+                      Garantia do Serviço (Meses)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Ex: 3, 6, 12 meses"
+                      value={garantiaMeses}
+                      onChange={(e) => setGarantiaMeses(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl p-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white outline-none focus:border-[#68D346]"
+                    />
+                    <span className="text-[8.5px] text-slate-400 mt-1 block">
+                      Cobertura legal ou estendida da oficina.
+                    </span>
+                  </div>
+
+                  {/* Garantia em Quilometragem */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-600 dark:text-slate-400 mb-1 flex items-center gap-1">
+                      <TrendingUp className="w-3 h-3 text-blue-500" />
+                      Garantia por Quilometragem (KM)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Ex: 5000, 10000 km"
+                      value={garantiaKm}
+                      onChange={(e) => setGarantiaKm(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl p-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white outline-none focus:border-[#68D346]"
+                    />
+                    <span className="text-[8.5px] text-slate-400 mt-1 block">
+                      Limite de km rodados sob cobertura.
+                    </span>
+                  </div>
+                </div>
+
+                {/* Destaque se o SLA de entrega estiver atrasado */}
+                {previsaoConclusao && new Date(previsaoConclusao).getTime() < Date.now() && status !== 'CONCLUIDA' && status !== 'REJEITADA' && (
+                  <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 flex items-center gap-2 text-rose-700 dark:text-rose-400 text-xs">
+                    <AlertTriangle className="w-4 h-4 shrink-0 animate-bounce" />
+                    <span>
+                      <strong>Atenção ao SLA:</strong> A data prevista de conclusão informada expirou ({new Date(previsaoConclusao).toLocaleString('pt-BR')}). Cobrar posicionamento da oficina.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* ==================================================================== */}
+              {/* PAINEL DE CONTROLE DE RECUSA / NÃO AUTORIZAÇÃO (STATUS = REJEITADA)   */}
+              {/* ==================================================================== */}
+              {status === 'REJEITADA' && (
+                <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/20 border-2 border-rose-300 dark:border-rose-900/70 space-y-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-rose-200 dark:border-rose-900/50">
+                    <span className="text-xs font-black uppercase text-rose-700 dark:text-rose-400 flex items-center gap-2">
+                      <Ban className="w-4 h-4" />
+                      Auditoria de Não Autorização / Recusa da O.S.
+                    </span>
+                    <span className="text-[9px] font-mono text-rose-600 dark:text-rose-400 font-bold">
+                      Liberação da Viatura no Pátio
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-rose-800 dark:text-rose-300 mb-1">
+                      Justificativa Técnica / Motivo da Não Autorização *
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={motivoRecusa}
+                      onChange={(e) => setMotivoRecusa(e.target.value)}
+                      placeholder="Ex: Cotação acima do teto orçamentário; veículo aguardando desmobilização; reparos considerados inviáveis pela diretoria..."
+                      className="w-full bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-800 rounded-xl p-2.5 text-xs font-medium outline-none focus:border-rose-600 text-rose-950 dark:text-rose-100"
+                      required={status === 'REJEITADA'}
+                    />
+                    <span className="text-[9px] text-rose-600 dark:text-rose-400 block mt-1">
+                      Este motivo constará formalmente nos relatórios de auditoria e no Romaneio como justificativa do cancelamento.
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* ================= ABA 2: ORÇAMENTOS & COTAÇÕES ================= */}
           {modalTab === 'ORCAMENTOS' && (
             <div className="space-y-4">
+
+              {/* ==================================================================== */}
+              {/* MAPA COMPARATIVO DE COTAÇÕES (CONCORRÊNCIA EM ATÉ 3 OFICINAS)        */}
+              {/* ==================================================================== */}
+              <div className="p-4 rounded-2xl bg-white dark:bg-[#181A1E] border border-slate-200 dark:border-[#282A2F] shadow-sm space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-[#282A2F]">
+                  <div>
+                    <h4 className="text-xs font-black uppercase text-slate-900 dark:text-white flex items-center gap-2 font-mono">
+                      <Award className="w-4 h-4 text-amber-500" />
+                      Mapa Comparativo de Cotações ({orcamentosConcorrentes.length}/3 Oficinas)
+                    </h4>
+                    <p className="text-[10.5px] text-slate-500 dark:text-zinc-400">
+                      Compare Preço, Prazo e Período de Garantia entre até 3 oficinas concorrentes para eleger a melhor proposta.
+                    </p>
+                  </div>
+                  {orcamentosConcorrentes.some(c => c.selecionada) && (
+                    <span className="px-2.5 py-1 rounded-lg text-[9.5px] font-mono font-bold bg-[#1C4E26] text-[#B7F365] border border-[#68D346] flex items-center gap-1 self-start sm:self-auto">
+                      <CheckCircle2 className="w-3 h-3" /> Proposta Vencedora Definida
+                    </span>
+                  )}
+                </div>
+
+                {/* Cards das Cotações Lado a Lado */}
+                {orcamentosConcorrentes.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#121418] border border-dashed border-slate-200 dark:border-slate-800 text-center space-y-1">
+                    <p className="text-xs text-slate-500 font-bold">Nenhuma cotação concorrente registrada ainda.</p>
+                    <p className="text-[11px] text-slate-400">Preencha o formulário abaixo para registrar os orçamentos de até 3 oficinas distintas.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {orcamentosConcorrentes.map((cot, idx) => (
+                      <div
+                        key={cot.id}
+                        className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between relative ${
+                          cot.selecionada
+                            ? 'bg-emerald-50/50 dark:bg-[#1C4E26]/20 border-[#68D346] shadow-sm ring-1 ring-[#68D346]'
+                            : 'bg-slate-50 dark:bg-[#121418] border-slate-200 dark:border-[#282A2F]'
+                        }`}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9.5px] font-mono font-bold text-slate-400">
+                              Oficina 0{idx + 1}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {cot.selecionada ? (
+                                <span className="px-1.5 py-0.5 rounded text-[8.5px] font-bold font-mono bg-[#68D346] text-slate-950 uppercase">
+                                  🏆 Vencedora
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectVencedora(cot.id)}
+                                  className="text-[9px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                                >
+                                  Selecionar
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveCotacao(cot.id)}
+                                className="text-slate-400 hover:text-red-500 p-0.5 border-none bg-transparent cursor-pointer"
+                                title="Excluir Cotação"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate" title={cot.oficina_nome}>
+                              {cot.oficina_nome}
+                            </h5>
+                            <p className="text-base font-black font-mono text-emerald-600 dark:text-[#68D346] mt-0.5">
+                              {Number(cot.valor_total).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-1.5 text-[10px] pt-1 border-t border-slate-200/60 dark:border-[#282A2F]">
+                            <div>
+                              <span className="text-slate-400 block font-mono text-[8.5px]">Prazo Entrega:</span>
+                              <span className="font-bold text-slate-700 dark:text-zinc-200">
+                                {cot.prazo_dias ? `${cot.prazo_dias} dias úteis` : 'A combinar'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block font-mono text-[8.5px]">Garantia:</span>
+                              <span className="font-bold text-slate-700 dark:text-zinc-200">
+                                {cot.garantia_meses ? `${cot.garantia_meses} meses` : 'Padrão'} {cot.garantia_km ? `(${cot.garantia_km} km)` : ''}
+                              </span>
+                            </div>
+                          </div>
+
+                          {cot.condicoes_pagamento && (
+                            <p className="text-[9.5px] text-slate-500 italic truncate">
+                              Condição: {cot.condicoes_pagamento}
+                            </p>
+                          )}
+                        </div>
+
+                        {!cot.selecionada && (
+                          <button
+                            type="button"
+                            onClick={() => handleSelectVencedora(cot.id)}
+                            className="mt-3 w-full py-1.5 px-2 rounded-xl text-[10px] font-bold font-mono uppercase bg-slate-200 dark:bg-[#282A2F] hover:bg-[#68D346] hover:text-slate-950 text-slate-700 dark:text-zinc-300 transition-all cursor-pointer border-none flex items-center justify-center gap-1"
+                          >
+                            <Check className="w-3 h-3" /> Escolher Proposta
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Formulário de Adição de Cotação Concorrente (até 3) */}
+                {orcamentosConcorrentes.length < 3 && (
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#121418] border border-slate-200/70 dark:border-[#282A2F] space-y-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 dark:text-zinc-400 font-mono block">
+                      + Adicionar Cotação Concorrente ({orcamentosConcorrentes.length + 1} de 3)
+                    </span>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[9px] font-bold uppercase text-slate-500 mb-0.5">Oficina / Prestador *</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Mecânica Silva ou Oficina Modelo"
+                          value={novaCotFornecedor}
+                          onChange={(e) => setNovaCotFornecedor(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg p-2 text-xs font-bold outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase text-slate-500 mb-0.5">Valor Proposto (R$) *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="Ex: 3400.00"
+                          value={novaCotValor}
+                          onChange={(e) => setNovaCotValor(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg p-2 text-xs font-mono font-bold outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase text-slate-500 mb-0.5">Prazo (Dias Úteis)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="Ex: 3"
+                          value={novaCotPrazoDias}
+                          onChange={(e) => setNovaCotPrazoDias(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg p-2 text-xs font-mono font-bold outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase text-slate-500 mb-0.5">Garantia (Meses)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="Ex: 6 meses"
+                          value={novaCotGarantiaMeses}
+                          onChange={(e) => setNovaCotGarantiaMeses(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg p-2 text-xs font-mono outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase text-slate-500 mb-0.5">Garantia (KM)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="Ex: 10000 km"
+                          value={novaCotGarantiaKm}
+                          onChange={(e) => setNovaCotGarantiaKm(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg p-2 text-xs font-mono outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase text-slate-500 mb-0.5">Condições de Pagamento</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Faturado 28 dias"
+                          value={novaCotCondicoes}
+                          onChange={(e) => setNovaCotCondicoes(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg p-2 text-xs outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        onClick={handleAddCotacao}
+                        className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-black dark:bg-[#282A2F] dark:hover:bg-[#3C3F45] text-white text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer border-none shadow-xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Adicionar Proposta ao Mapa
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ANEXOS & PROPOSTAS COMERCIAIS */}
               <div className="p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-900/50 space-y-3">
                 <h4 className="text-xs font-bold text-blue-900 dark:text-blue-300 flex items-center gap-2">
                   <Paperclip className="w-4 h-4" />
@@ -1142,6 +1661,153 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
                       <span>R$</span>
                       <span>{custoTotal}</span>
                     </div>
+                    {totalAditivosAprovados > 0 && (
+                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-mono block mt-1">
+                        + R$ {totalAditivosAprovados.toFixed(2)} em aditivos aprovados
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ==================================================================== */}
+              {/* ORÇAMENTOS COMPLEMENTARES / ADITIVOS DE REPARO                       */}
+              {/* ==================================================================== */}
+              <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/50 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-1 border-b border-amber-200/70 dark:border-amber-900/50">
+                  <h4 className="text-xs font-bold text-amber-900 dark:text-amber-300 flex items-center gap-2">
+                    <PlusCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                    Orçamentos Complementares / Aditivos ({orcamentosAditivos.length})
+                  </h4>
+                  <span className="text-[9px] text-amber-700 dark:text-amber-400 font-mono">
+                    Defeitos ocultos surgidos durante a execução dos reparos
+                  </span>
+                </div>
+
+                {orcamentosAditivos.length === 0 ? (
+                  <p className="text-xs text-slate-500 italic py-1">
+                    Nenhum orçamento complementar / aditivo solicitado para esta ordem.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {orcamentosAditivos.map((adit) => (
+                      <div
+                        key={adit.id}
+                        className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs"
+                      >
+                        <div className="space-y-0.5 min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-1.5 py-0.5 rounded text-[8.5px] font-mono font-bold uppercase bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300">
+                              Aditivo #{adit.numero_aditivo}
+                            </span>
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                              {adit.descricao}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500">
+                            Motivo: <em>{adit.motivo}</em>
+                            {adit.prazo_adicional_dias ? ` • +${adit.prazo_adicional_dias} dias de prazo` : ''}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                          <span className="font-mono font-black text-xs text-emerald-600 dark:text-[#68D346]">
+                            + {Number(adit.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+
+                          <select
+                            value={adit.status}
+                            onChange={(e) => handleToggleAditivoStatus(adit.id, e.target.value as any)}
+                            className={`text-[9.5px] font-bold font-mono py-1 px-2 rounded-lg border cursor-pointer outline-none ${
+                              adit.status === 'APROVADO'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                : adit.status === 'REJEITADO'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/50 dark:text-rose-300'
+                                  : 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300'
+                            }`}
+                          >
+                            <option value="APROVADO">Aprovado</option>
+                            <option value="SOLICITADO">Pendente</option>
+                            <option value="REJEITADO">Rejeitado</option>
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAditivo(adit.id)}
+                            className="p-1 text-slate-400 hover:text-red-500 border-none bg-transparent cursor-pointer"
+                            title="Excluir Aditivo"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Formulário de Novo Aditivo */}
+                <div className="p-3 rounded-xl bg-white/70 dark:bg-slate-900/70 border border-dashed border-amber-300 dark:border-amber-900/60 space-y-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 font-mono block">
+                    + Solicitar Orçamento Complementar / Aditivo
+                  </span>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[9px] font-bold uppercase text-slate-500 mb-0.5">Descrição do Defeito / Peça Extra *</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Troca do atuador da embreagem identificado na desmontagem"
+                        value={novoAditDescricao}
+                        onChange={(e) => setNovoAditDescricao(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg p-2 text-xs font-medium outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[9px] font-bold uppercase text-slate-500 mb-0.5">Valor Adicional (R$) *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="Ex: 650.00"
+                        value={novoAditValor}
+                        onChange={(e) => setNovoAditValor(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg p-2 text-xs font-mono font-bold outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[9px] font-bold uppercase text-slate-500 mb-0.5">Prazo Extra (Dias)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="Ex: 2"
+                        value={novoAditPrazoDias}
+                        onChange={(e) => setNovoAditPrazoDias(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg p-2 text-xs font-mono outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] font-bold uppercase text-slate-500 mb-0.5">Justificativa Técnica</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Peça apresentou trinca estrutural visível apenas após retirada do conjunto"
+                      value={novoAditMotivo}
+                      onChange={(e) => setNovoAditMotivo(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg p-2 text-xs outline-none"
+                    />
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={handleAddAditivo}
+                      className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer border-none shadow-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Incluir Aditivo
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1341,7 +2007,13 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
           itens_componentes_json: subcomponentes as any,
           contrato_id: contratoId || activeViatura?.contrato_id || 'PARAUAPEBAS',
           viatura_id: activeViatura?.id || selectedViaturaId,
-          responsavel_abertura: osToEdit?.responsavel_abertura || userProfile?.name || currentUser?.displayName || 'Inspetor de Frotas SPCI'
+          responsavel_abertura: osToEdit?.responsavel_abertura || userProfile?.name || currentUser?.displayName || 'Inspetor de Frotas SPCI',
+          previsao_conclusao: previsaoConclusao ? new Date(previsaoConclusao).toISOString() : null,
+          garantia_meses: parseInt(garantiaMeses) || null,
+          garantia_km: parseInt(garantiaKm) || null,
+          motivo_recusa: motivoRecusa || null,
+          orcamentos_concorrentes_json: orcamentosConcorrentes,
+          orcamentos_aditivos_json: orcamentosAditivos
         } as any}
         viatura={activeViatura}
         oficina={oficinas.find(o => o.id === oficinaId) || null}

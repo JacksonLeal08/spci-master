@@ -31,6 +31,8 @@ export interface SubcomponenteSelecionado {
   criticidade: CriticidadeSubcomponente;
   twi_critico?: boolean;
   observacao?: string;
+  garantia_meses?: number;
+  garantia_km?: number;
 }
 
 export const CATALOGO_10_SISTEMAS: SistemaMacro[] = [

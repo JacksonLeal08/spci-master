@@ -44,7 +44,8 @@ export type StatusOrdemServico =
   | 'EM_ANDAMENTO' 
   | 'AGUARDANDO_PECAS' 
   | 'CONCLUIDA' 
-  | 'CANCELADA';
+  | 'CANCELADA'
+  | 'REJEITADA';
 
 export type NaturezaManutencao = 
   | 'PREVENTIVA' 
@@ -145,6 +146,38 @@ export interface DocumentoAnexo {
   data_upload?: string;
 }
 
+export interface OrcamentoConcorrente {
+  id?: string;
+  oficina_nome: string;
+  oficina_cnpj?: string;
+  telefone?: string;
+  valor_total: number;
+  prazo_dias?: number;
+  data_prometida?: string;
+  previsao_entrega?: string;
+  condicoes_pagamento?: string;
+  garantia_meses?: number;
+  garantia_km?: number;
+  selecionada: boolean;
+  observacao?: string;
+}
+
+export interface OrcamentoAditivo {
+  id?: string;
+  numero_aditivo?: number;
+  data?: string;
+  data_solicitacao?: string;
+  motivo: string;
+  descricao?: string;
+  valor_aditivo?: number;
+  valor?: number;
+  prazo_adicional_dias?: number;
+  aprovado_por?: string;
+  data_aprovacao?: string;
+  status: 'PENDENTE' | 'APROVADO' | 'REJEITADO' | 'SOLICITADO';
+  comprovante_url?: string;
+}
+
 export interface OrdemServicoFrota {
   id: string;
   contrato_id: string;
@@ -191,6 +224,16 @@ export interface OrdemServicoFrota {
   origem_abertura?: 'MANUAL' | 'CHECKLIST_8_SISTEMAS' | 'LAUDO_TWI_PNEUS' | string;
   resumo_anatomico?: string | null;
   itens_componentes_json?: any[];
+
+  // Prazos, Garantias, Recusa e Cotações / Aditivos
+  previsao_conclusao?: string | null;
+  garantia_meses?: number | null;
+  garantia_km?: number | null;
+  motivo_recusa?: string | null;
+  data_recusa?: string | null;
+  responsavel_recusa?: string | null;
+  orcamentos_concorrentes_json?: OrcamentoConcorrente[];
+  orcamentos_aditivos_json?: OrcamentoAditivo[];
 
   // Relações em tempo de execução
   viatura?: Viatura;

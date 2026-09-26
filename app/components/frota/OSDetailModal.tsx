@@ -19,6 +19,7 @@ import {
   listOSAuditHistoryAction,
   dispatchOSAlertsAction 
 } from '@/app/actions/osWorkflowActions';
+import { saveOrdemServicoAction } from '@/app/actions/frotaActions';
 import { useSpci } from '@/app/context/SpciContext';
 import { 
   Wrench, 
@@ -46,7 +47,12 @@ import {
   Send,
   Printer,
   Layers,
-  Receipt
+  Receipt,
+  Ban,
+  CalendarCheck,
+  Award,
+  TrendingUp,
+  AlertCircle
 } from 'lucide-react';
 import { OSRomaneioModal } from './OSRomaneioModal';
 import { shareRomaneioWhatsAppHybrid } from '@/lib/osRomaneioReports';
@@ -75,6 +81,10 @@ export const OSDetailModal: React.FC<OSDetailModalProps> = ({
   const [isMaximized, setIsMaximized] = useState<boolean>(false);
   const [isRomaneioOpen, setIsRomaneioOpen] = useState<boolean>(false);
 
+  // Controle de Recusa / Não Autorização
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState<boolean>(false);
+  const [motivoRecusaInput, setMotivoRecusaInput] = useState<string>('');
+
   // Carrega trilha de auditoria
   useEffect(() => {
     if (os?.id && isOpen) {
@@ -96,6 +106,15 @@ export const OSDetailModal: React.FC<OSDetailModalProps> = ({
   const etapaAtual = (os.etapa_atual || '1_ABERTURA_TRIAGEM') as EtapaOS;
   const etapaNumeroAtual = os.numero_etapa || 1;
 
+  const isRecusada = os.status_os === 'REJEITADA' || os.status === 'REJEITADA';
+
+  // Verifica atraso de SLA
+  const isAtrasada = Boolean(
+    os.previsao_conclusao && 
+    new Date(os.previsao_conclusao).getTime() < Date.now() &&
+    !['CONCLUIDA', 'REJEITADA', 'CANCELADA'].includes(os.status_os || os.status)
+  );
+
   const viatura: Viatura = os.viatura || {
     id: os.viatura_id,
     prefixo_frota: 'VTR-01',
@@ -110,6 +129,47 @@ export const OSDetailModal: React.FC<OSDetailModalProps> = ({
   };
 
   const valorTotal = Number(os.valor_estimado || os.custo_total || (Number(os.custo_pecas || 0) + Number(os.custo_mao_de_obra || 0) + Number(os.custo_pneus || 0)));
+
+  // Ação de não autorizar / recusar a OS
+  const handleRejectOS = async () => {
+    if (!motivoRecusaInput.trim()) {
+      alert('Por favor, informe a justificativa técnica para não autorizar ou recusar a Ordem de Serviço.');
+      return;
+    }
+
+    setIsProcessing(true);
+    const responsavel = userProfile?.name || currentUser?.displayName || 'Gestor de Frota SPCI';
+    try {
+      const res = await saveOrdemServicoAction({
+        id: os.id,
+        status: 'REJEITADA',
+        status_os: 'REJEITADA',
+        motivo_recusa: motivoRecusaInput.trim(),
+        data_recusa: new Date().toISOString(),
+        responsavel_recusa: responsavel,
+        numero_os: os.numero_os,
+        contrato_id: os.contrato_id,
+        viatura_id: os.viatura_id,
+        tipo_os: os.tipo_os,
+        natureza_manutencao: os.natureza_manutencao,
+        prioridade: os.prioridade
+      });
+
+      if (res.success && res.data) {
+        if (onOSUpdated) onOSUpdated(res.data);
+        triggerSuccessNotification('Ordem Recusada / Não Autorizada!', `A OS #${os.numero_os} foi rejeitada e a viatura liberada.`);
+        setIsRejectModalOpen(false);
+        const aud = await listOSAuditHistoryAction(os.id);
+        if (aud.data) setAuditLogs(aud.data);
+      } else {
+        alert(res.error || 'Erro ao rejeitar Ordem de Serviço.');
+      }
+    } catch (e: any) {
+      alert('Falha: ' + e?.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   // Ação de aprovar
   const handleApprove = async () => {
@@ -235,9 +295,36 @@ export const OSDetailModal: React.FC<OSDetailModalProps> = ({
                   {critConfig.label}
                 </span>
               </div>
-              <p className="text-[10px] text-slate-500 dark:text-zinc-400 font-mono">
-                Aberta em {os.data_abertura ? new Date(os.data_abertura).toLocaleString('pt-BR') : 'Data não informada'} • Viatura {viatura.prefixo_frota} ({viatura.placa})
-              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-[10px] text-slate-500 dark:text-zinc-400 font-mono">
+                  Aberta em {os.data_abertura ? new Date(os.data_abertura).toLocaleString('pt-BR') : 'Data não informada'} • Viatura {viatura.prefixo_frota} ({viatura.placa})
+                </p>
+
+                {os.previsao_conclusao && (
+                  <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-1 ${
+                    isAtrasada
+                      ? 'bg-rose-500 text-white animate-pulse'
+                      : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30'
+                  }`}>
+                    <Clock className="w-3 h-3" />
+                    {isAtrasada ? '⚠️ SLA ATRASADO: ' : 'Previsão: '}
+                    {new Date(os.previsao_conclusao).toLocaleDateString('pt-BR')}
+                  </span>
+                )}
+
+                {(os.garantia_meses || os.garantia_km) && (
+                  <span className="px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-[#1C4E26] text-[#B7F365] border border-[#68D346] flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" />
+                    Garantia: {os.garantia_meses ? `${os.garantia_meses}m` : ''} {os.garantia_km ? `${os.garantia_km}km` : ''}
+                  </span>
+                )}
+
+                {isRecusada && (
+                  <span className="px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-600 text-white uppercase flex items-center gap-1">
+                    <Ban className="w-3 h-3" /> Não Autorizada
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -374,6 +461,28 @@ export const OSDetailModal: React.FC<OSDetailModalProps> = ({
           {/* TAB 1: WORKFLOW & AÇÕES */}
           {activeTab === 'workflow' && (
             <div className="space-y-4">
+              {/* Banner de O.S. Não Autorizada / Recusada */}
+              {isRecusada && (
+                <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border-2 border-rose-400 dark:border-rose-900 shadow-md space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase text-rose-700 dark:text-rose-400 flex items-center gap-1.5 font-mono">
+                      <Ban className="w-4 h-4" />
+                      ORDEM DE SERVIÇO NÃO AUTORIZADA / REJEITADA
+                    </span>
+                    <span className="text-[10px] font-mono text-rose-600 dark:text-rose-300 font-bold">
+                      Viatura Liberada no Pátio
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-slate-800 dark:text-zinc-200">
+                    Motivo da Recusa: <span className="font-normal italic">"{os.motivo_recusa || 'Não justificado'}"</span>
+                  </p>
+                  <p className="text-[10px] font-mono text-slate-500 dark:text-zinc-400">
+                    Decidido por: <strong>{os.responsavel_recusa || 'Gestor Autorizado'}</strong>
+                    {os.data_recusa ? ` em ${new Date(os.data_recusa).toLocaleString('pt-BR')}` : ''}
+                  </p>
+                </div>
+              )}
+
               {/* Destaque da Etapa Atual */}
               <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-50 dark:from-[#181A1E] to-transparent border border-slate-200 dark:border-[#3C3F45] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
@@ -389,8 +498,8 @@ export const OSDetailModal: React.FC<OSDetailModalProps> = ({
                 </div>
 
                 {/* Botões de Ação na Etapa */}
-                <div className="flex items-center gap-2 shrink-0">
-                  {etapaAtual === '3_AGUARDANDO_APROVACAO' && (
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  {etapaAtual === '3_AGUARDANDO_APROVACAO' && !isRecusada && (
                     <button
                       type="button"
                       disabled={isProcessing}
@@ -402,7 +511,7 @@ export const OSDetailModal: React.FC<OSDetailModalProps> = ({
                     </button>
                   )}
 
-                  {etapaNumeroAtual < 6 && etapaAtual !== '3_AGUARDANDO_APROVACAO' && (
+                  {etapaNumeroAtual < 6 && etapaAtual !== '3_AGUARDANDO_APROVACAO' && !isRecusada && (
                     <button
                       type="button"
                       disabled={isProcessing}
@@ -411,6 +520,19 @@ export const OSDetailModal: React.FC<OSDetailModalProps> = ({
                     >
                       <span>Avançar Etapa</span>
                       <ArrowRight className="w-4 h-4" />
+                    </button>
+                  )}
+
+                  {!['CONCLUIDA', 'REJEITADA', 'CANCELADA'].includes(os.status_os || os.status) && (
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => setIsRejectModalOpen(true)}
+                      className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-mono font-bold text-xs uppercase flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="Não autorizar continuidade dos reparos"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                      <span>Não Autorizar</span>
                     </button>
                   )}
                 </div>
@@ -581,6 +703,98 @@ export const OSDetailModal: React.FC<OSDetailModalProps> = ({
                   <p className="text-slate-400 text-xs italic">Nenhuma peça discriminada individualmente.</p>
                 )}
               </div>
+
+              {/* Mapa de Cotações Concorrentes Registradas */}
+              {os.orcamentos_concorrentes_json && os.orcamentos_concorrentes_json.length > 0 && (
+                <div className="p-4 rounded-2xl bg-white dark:bg-[#181A1E] border border-slate-200 dark:border-[#3C3F45] space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-[#282A2F]">
+                    <span className="text-[10px] font-mono uppercase text-amber-500 font-bold flex items-center gap-1.5">
+                      <Award className="w-3.5 h-3.5" />
+                      Cotações Concorrentes Comparadas ({os.orcamentos_concorrentes_json.length})
+                    </span>
+                    <span className="text-[9px] font-mono text-slate-400">
+                      Concorrência de Preço e Prazos
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {os.orcamentos_concorrentes_json.map((cot, idx) => (
+                      <div
+                        key={cot.id || idx}
+                        className={`p-3 rounded-xl border text-xs space-y-1 ${
+                          cot.selecionada
+                            ? 'bg-[#1C4E26]/20 border-[#68D346] shadow-2xs'
+                            : 'bg-slate-50 dark:bg-[#121418] border-slate-200 dark:border-[#282A2F]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-800 dark:text-zinc-200 truncate">{cot.oficina_nome}</span>
+                          {cot.selecionada && (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-bold font-mono bg-[#68D346] text-slate-950 uppercase">
+                              🏆 Vencedora
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-mono font-black text-sm text-emerald-600 dark:text-[#68D346]">
+                          {Number(cot.valor_total).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </p>
+                        <div className="text-[10px] text-slate-500 font-mono flex justify-between pt-1 border-t border-slate-200/60 dark:border-[#282A2F]">
+                          <span>Prazo: {cot.prazo_dias ? `${cot.prazo_dias}d` : '-'}</span>
+                          <span>Garantia: {cot.garantia_meses ? `${cot.garantia_meses}m` : '-'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Orçamentos Aditivos / Complementares Registrados */}
+              {os.orcamentos_aditivos_json && os.orcamentos_aditivos_json.length > 0 && (
+                <div className="p-4 rounded-2xl bg-white dark:bg-[#181A1E] border border-slate-200 dark:border-[#3C3F45] space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-[#282A2F]">
+                    <span className="text-[10px] font-mono uppercase text-amber-600 dark:text-amber-400 font-bold flex items-center gap-1.5">
+                      <TrendingUp className="w-3.5 h-3.5" />
+                      Orçamentos Complementares / Aditivos ({os.orcamentos_aditivos_json.length})
+                    </span>
+                    <span className="text-[9px] font-mono text-slate-400">
+                      Defeitos identificados durante os reparos
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {os.orcamentos_aditivos_json.map((adit, idx) => (
+                      <div
+                        key={adit.id || idx}
+                        className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#121418] border border-slate-200 dark:border-[#282A2F] flex items-center justify-between text-xs gap-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-800 dark:text-zinc-200 truncate">
+                            #{adit.numero_aditivo} • {adit.descricao}
+                          </p>
+                          <p className="text-[10px] text-slate-500">
+                            Motivo: <em>{adit.motivo}</em>
+                            {adit.prazo_adicional_dias ? ` • +${adit.prazo_adicional_dias} dias` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="font-mono font-black text-emerald-600 dark:text-[#68D346]">
+                            + {Number(adit.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
+                            adit.status === 'APROVADO'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : adit.status === 'REJEITADO'
+                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                          }`}>
+                            {adit.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -653,6 +867,68 @@ export const OSDetailModal: React.FC<OSDetailModalProps> = ({
           </div>
         </div>
       </motion.div>
+
+      {/* MODAL DE CONFIRMAÇÃO PARA NÃO AUTORIZAR / RECUSAR OS */}
+      <AnimatePresence>
+        {isRejectModalOpen && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-md bg-white dark:bg-[#1E2024] border border-rose-300 dark:border-rose-900 rounded-3xl p-5 shadow-2xl space-y-4"
+            >
+              <div className="flex items-center gap-2.5 pb-2 border-b border-rose-200 dark:border-rose-900/50">
+                <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center font-bold shrink-0">
+                  <Ban className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase text-rose-700 dark:text-rose-400 font-mono">
+                    Não Autorizar / Recusar O.S. #{os.numero_os}
+                  </h4>
+                  <p className="text-[10.5px] text-slate-500 dark:text-zinc-400">
+                    A viatura será liberada no pátio e a justificativa gravada na auditoria.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-700 dark:text-zinc-300 mb-1">
+                  Justificativa / Motivo da Não Autorização *
+                </label>
+                <textarea
+                  rows={3}
+                  value={motivoRecusaInput}
+                  onChange={(e) => setMotivoRecusaInput(e.target.value)}
+                  placeholder="Informe detalhadamente por que a manutenção não foi aprovada (ex: orçamento acima do teto orçamentário, viatura em desmobilização, inviabilidade técnica)..."
+                  className="w-full bg-slate-50 dark:bg-[#121418] border border-slate-300 dark:border-slate-800 rounded-xl p-2.5 text-xs font-medium outline-none focus:border-rose-600"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsRejectModalOpen(false)}
+                  disabled={isProcessing}
+                  className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200 uppercase cursor-pointer border-none bg-transparent"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRejectOS}
+                  disabled={isProcessing || !motivoRecusaInput.trim()}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold font-mono uppercase tracking-wider flex items-center gap-1.5 shadow-md cursor-pointer border-none disabled:opacity-50"
+                >
+                  <Ban className="w-3.5 h-3.5" />
+                  <span>{isProcessing ? 'Gravando Recusa...' : 'Confirmar Não Autorização'}</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* MODAL DO RELATÓRIO EXECUTIVO DA OS (ROMANEIO) */}
       <OSRomaneioModal

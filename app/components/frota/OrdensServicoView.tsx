@@ -49,7 +49,9 @@ import {
   Disc,
   Fuel,
   Building2,
-  Printer
+  Printer,
+  Ban,
+  ShieldCheck
 } from 'lucide-react';
 
 export const OrdensServicoView: React.FC = () => {
@@ -123,6 +125,11 @@ export const OrdensServicoView: React.FC = () => {
     }
   }, [targetId, targetView, targetAction, ordens]);
 
+  // Contagem de Ordens Recusadas / Não Autorizadas
+  const countRejeitadas = useMemo(() => {
+    return ordens.filter(os => (os.status_os === 'REJEITADA' || os.status === 'REJEITADA')).length;
+  }, [ordens]);
+
   // Filtros combinados
   const filteredOrdens = useMemo(() => {
     return ordens.filter(os => {
@@ -131,6 +138,7 @@ export const OrdensServicoView: React.FC = () => {
       const placa = vtr?.placa || '';
       const numOs = os.numero_os || '';
       const desc = os.descricao_motivo || os.descricao_servico || '';
+      const isRej = os.status_os === 'REJEITADA' || os.status === 'REJEITADA';
 
       const matchSearch = searchTerm === '' || 
         prefixo.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -141,8 +149,14 @@ export const OrdensServicoView: React.FC = () => {
       const matchCrit = selectedCriticidade === 'TODAS' || 
         (os.prioridade || 'NORMAL').toUpperCase() === selectedCriticidade;
 
-      const matchEtapa = selectedEtapa === 'TODAS' || 
-        (os.etapa_atual || '1_ABERTURA_TRIAGEM') === selectedEtapa;
+      let matchEtapa = true;
+      if (selectedEtapa === 'REJEITADAS') {
+        matchEtapa = isRej;
+      } else if (selectedEtapa !== 'TODAS') {
+        matchEtapa = !isRej && (os.etapa_atual || '1_ABERTURA_TRIAGEM') === selectedEtapa;
+      } else {
+        matchEtapa = true;
+      }
 
       const matchVtr = selectedViaturaId === 'TODAS' || os.viatura_id === selectedViaturaId;
 
@@ -162,8 +176,11 @@ export const OrdensServicoView: React.FC = () => {
     };
 
     ordens.forEach(os => {
-      const et = os.etapa_atual || '1_ABERTURA_TRIAGEM';
-      if (counts[et] !== undefined) counts[et]++;
+      const isRej = os.status_os === 'REJEITADA' || os.status === 'REJEITADA';
+      if (!isRej) {
+        const et = os.etapa_atual || '1_ABERTURA_TRIAGEM';
+        if (counts[et] !== undefined) counts[et]++;
+      }
     });
 
     return counts;
@@ -289,7 +306,7 @@ export const OrdensServicoView: React.FC = () => {
       {/* ========================================================================= */}
       {/* 2. TIRA DE ETAPAS DO WORKFLOW COM CONTADORES                              */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5">
         {ETAPAS_WORKFLOW_OS.map((def) => {
           const count = countsByEtapa[def.etapa] || 0;
           const isSelected = selectedEtapa === def.etapa;
@@ -324,6 +341,34 @@ export const OrdensServicoView: React.FC = () => {
             </button>
           );
         })}
+
+        {/* Card Especial de Ordens Recusadas / Não Autorizadas */}
+        <button
+          type="button"
+          onClick={() => setSelectedEtapa(selectedEtapa === 'REJEITADAS' ? 'TODAS' : 'REJEITADAS')}
+          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer relative overflow-hidden ${
+            selectedEtapa === 'REJEITADAS' 
+              ? 'bg-rose-500/20 border-rose-500 shadow-sm ring-1 ring-rose-500' 
+              : 'bg-white dark:bg-[#1E2024] border-slate-200 dark:border-[#3C3F45] hover:border-rose-400 dark:hover:border-rose-800'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono font-black text-rose-500 flex items-center gap-1">
+              <Ban className="w-3 h-3" /> 07
+            </span>
+            <span className={`px-2 py-0.5 rounded-md font-mono text-xs font-black ${
+              countRejeitadas > 0 ? 'bg-rose-600/20 text-rose-600 dark:text-rose-400' : 'bg-slate-100 dark:bg-zinc-800 text-slate-400'
+            }`}>
+              {countRejeitadas}
+            </span>
+          </div>
+          <p className="text-xs font-bold text-rose-700 dark:text-rose-300 mt-2 truncate">
+            Não Autorizadas
+          </p>
+          <span className="text-[9px] text-slate-400 font-mono block truncate">
+            Reparos Recusados
+          </span>
+        </button>
       </div>
 
       {/* ========================================================================= */}
@@ -406,6 +451,76 @@ export const OrdensServicoView: React.FC = () => {
             Cadastrar nova OS agora.
           </button>
         </div>
+      ) : selectedEtapa === 'REJEITADAS' ? (
+        /* ---------------- VISUALIZAÇÃO DEDICADA DE ORDENS NÃO AUTORIZADAS / RECUSADAS ---------------- */
+        <div className="space-y-4">
+          <div className="p-4 rounded-2xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center font-bold">
+                <Ban className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-black uppercase text-rose-800 dark:text-rose-300 font-mono">
+                  Painel de Controle: Ordens de Serviço Não Autorizadas ({filteredOrdens.length})
+                </h3>
+                <p className="text-[11px] text-rose-600/80 dark:text-rose-400">
+                  Histórico de cotações recusadas e justificativas técnicas registradas para auditoria corporativa.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedEtapa('TODAS')}
+              className="text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200 underline cursor-pointer border-none bg-transparent"
+            >
+              Voltar ao Fluxo Principal
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {filteredOrdens.map(os => {
+              const vtr = os.viatura || viaturas.find(v => v.id === os.viatura_id);
+              const valor = Number(os.valor_estimado || os.custo_total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+              return (
+                <div
+                  key={os.id}
+                  onClick={() => handleOpenDetail(os)}
+                  className="p-4 rounded-2xl bg-white dark:bg-[#1E2024] border-2 border-rose-300/80 dark:border-rose-900/60 shadow-sm hover:shadow-md transition-all cursor-pointer space-y-2.5 relative overflow-hidden group"
+                >
+                  <div className="flex items-center justify-between text-[10px] font-mono">
+                    <span className="font-black text-rose-700 dark:text-rose-400">
+                      #{os.numero_os || 'OS-SEM-NUM'}
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-rose-600 text-white">
+                      NÃO AUTORIZADA
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs font-black text-slate-900 dark:text-white">
+                    <Truck className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{vtr?.prefixo_frota || 'VTR'}</span>
+                    <span className="text-[10px] font-mono text-slate-400">({vtr?.placa || '-'})</span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-xs">
+                    <span className="text-[9px] font-mono uppercase text-rose-700 dark:text-rose-400 font-bold block mb-0.5">
+                      Motivo da Recusa:
+                    </span>
+                    <p className="text-slate-800 dark:text-zinc-200 italic line-clamp-3 leading-snug">
+                      "{os.motivo_recusa || 'Sem justificativa informada.'}"
+                    </p>
+                  </div>
+
+                  <div className="text-[10px] font-mono text-slate-400 flex justify-between items-center pt-2 border-t border-slate-100 dark:border-[#282A2F]">
+                    <span>Orçamento: <strong className="text-slate-700 dark:text-zinc-200">{valor}</strong></span>
+                    <span>{os.data_recusa ? new Date(os.data_recusa).toLocaleDateString('pt-BR') : ''}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       ) : viewMode === 'kanban' ? (
         
         /* ---------------- KANBAN BOARD (6 COLUNAS) ---------------- */
@@ -444,6 +559,12 @@ export const OrdensServicoView: React.FC = () => {
                       const isUrgente = prioridade === 'URGENTE';
                       const vtr = os.viatura || viaturas.find(v => v.id === os.viatura_id);
                       const valor = Number(os.valor_estimado || os.custo_total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                      const isAtrasada = Boolean(
+                        os.previsao_conclusao && 
+                        new Date(os.previsao_conclusao).getTime() < Date.now() &&
+                        !['CONCLUIDA', 'REJEITADA', 'CANCELADA'].includes(os.status_os || os.status)
+                      );
+                      const isRej = os.status_os === 'REJEITADA' || os.status === 'REJEITADA';
 
                       return (
                         <div
@@ -481,6 +602,31 @@ export const OrdensServicoView: React.FC = () => {
                           <p className="text-[11px] text-slate-600 dark:text-zinc-400 line-clamp-2 leading-snug">
                             {os.descricao_motivo || os.descricao_servico || 'Manutenção corretiva.'}
                           </p>
+
+                          {/* Badges de Cronograma, SLA & Garantia */}
+                          <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono pt-0.5">
+                            {os.previsao_conclusao && (
+                              <span className={`px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                                isAtrasada ? 'bg-rose-500 text-white font-bold animate-pulse' : 'bg-slate-100 dark:bg-[#121418] text-slate-500 dark:text-zinc-300'
+                              }`}>
+                                <Clock className="w-2.5 h-2.5" />
+                                {isAtrasada ? 'SLA Atrasado' : new Date(os.previsao_conclusao).toLocaleDateString('pt-BR')}
+                              </span>
+                            )}
+
+                            {(os.garantia_meses || os.garantia_km) && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-[#B7F365] border border-emerald-500/20 flex items-center gap-0.5 font-bold">
+                                <ShieldCheck className="w-2.5 h-2.5" />
+                                {os.garantia_meses ? `${os.garantia_meses}m` : ''}{os.garantia_km ? `/${os.garantia_km}km` : ''}
+                              </span>
+                            )}
+
+                            {isRej && (
+                              <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white font-bold flex items-center gap-0.5">
+                                <Ban className="w-2.5 h-2.5" /> Não Autorizada
+                              </span>
+                            )}
+                          </div>
 
                           {/* Rodapé: Valor & Ação Rápida */}
                           <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-[#282A2F] text-[10px] font-mono">
@@ -538,6 +684,7 @@ export const OrdensServicoView: React.FC = () => {
                   <th className="p-3.5 pl-5">Número OS</th>
                   <th className="p-3.5">Viatura & Placa</th>
                   <th className="p-3.5">Prioridade / SLA</th>
+                  <th className="p-3.5">Prazos & Garantias</th>
                   <th className="p-3.5">Etapa do Workflow</th>
                   <th className="p-3.5">Defeito Relatado</th>
                   <th className="p-3.5">Valor Estimado</th>
@@ -551,12 +698,20 @@ export const OrdensServicoView: React.FC = () => {
                   const isUrgente = prioridade === 'URGENTE';
                   const vtr = os.viatura || viaturas.find(v => v.id === os.viatura_id);
                   const valor = Number(os.valor_estimado || os.custo_total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                  const isAtrasada = Boolean(
+                    os.previsao_conclusao && 
+                    new Date(os.previsao_conclusao).getTime() < Date.now() &&
+                    !['CONCLUIDA', 'REJEITADA', 'CANCELADA'].includes(os.status_os || os.status)
+                  );
+                  const isRej = os.status_os === 'REJEITADA' || os.status === 'REJEITADA';
 
                   return (
                     <tr
                       key={os.id}
                       onClick={() => handleOpenDetail(os)}
-                      className="hover:bg-slate-50/80 dark:hover:bg-[#282A2F]/60 transition-colors cursor-pointer"
+                      className={`hover:bg-slate-50/80 dark:hover:bg-[#282A2F]/60 transition-colors cursor-pointer ${
+                        isRej ? 'bg-rose-50/20 dark:bg-rose-950/10' : ''
+                      }`}
                     >
                       <td className="p-3.5 pl-5 font-mono font-black text-slate-900 dark:text-white">
                         #{os.numero_os || 'OS-000'}
@@ -575,14 +730,45 @@ export const OrdensServicoView: React.FC = () => {
                         </span>
                       </td>
 
+                      <td className="p-3.5 font-mono text-[10.5px]">
+                        <div className="flex flex-col gap-0.5">
+                          {os.previsao_conclusao ? (
+                            <span className={`flex items-center gap-1 ${isAtrasada ? 'text-rose-600 font-bold' : 'text-slate-600 dark:text-zinc-300'}`}>
+                              <Clock className="w-3 h-3" />
+                              {new Date(os.previsao_conclusao).toLocaleDateString('pt-BR')}
+                              {isAtrasada && <span className="text-[8.5px] uppercase font-bold px-1 bg-rose-100 text-rose-700 rounded">Atrasado</span>}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+
+                          {(os.garantia_meses || os.garantia_km) && (
+                            <span className="text-[#1C4E26] dark:text-[#B7F365] font-bold flex items-center gap-1 text-[9.5px]">
+                              <ShieldCheck className="w-3 h-3" />
+                              {os.garantia_meses ? `${os.garantia_meses}m` : ''} {os.garantia_km ? `(${os.garantia_km}km)` : ''}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
                       <td className="p-3.5">
-                        <span className="font-mono text-xs font-bold text-slate-800 dark:text-zinc-200">
-                          {os.etapa_atual || '1_ABERTURA_TRIAGEM'}
-                        </span>
+                        {isRej ? (
+                          <span className="px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-rose-600 text-white uppercase flex items-center gap-1 w-fit">
+                            <Ban className="w-3 h-3" /> Recusada
+                          </span>
+                        ) : (
+                          <span className="font-mono text-xs font-bold text-slate-800 dark:text-zinc-200">
+                            {os.etapa_atual || '1_ABERTURA_TRIAGEM'}
+                          </span>
+                        )}
                       </td>
 
                       <td className="p-3.5 max-w-xs truncate text-slate-600 dark:text-zinc-400">
-                        {os.descricao_motivo || os.descricao_servico || '-'}
+                        {isRej && os.motivo_recusa ? (
+                          <span className="text-rose-700 dark:text-rose-400 font-medium">Motivo: {os.motivo_recusa}</span>
+                        ) : (
+                          os.descricao_motivo || os.descricao_servico || '-'
+                        )}
                       </td>
 
                       <td className="p-3.5 font-mono font-bold text-slate-900 dark:text-white">
@@ -605,7 +791,7 @@ export const OrdensServicoView: React.FC = () => {
                             <span className="hidden sm:inline">Romaneio</span>
                           </button>
 
-                          {os.etapa_atual === '3_AGUARDANDO_APROVACAO' ? (
+                          {os.etapa_atual === '3_AGUARDANDO_APROVACAO' && !isRej ? (
                             <button
                               type="button"
                               disabled={approvingId === os.id}
