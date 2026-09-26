@@ -25,6 +25,7 @@ import { useSpci } from '@/app/context/SpciContext';
 import { OSDetailModal } from './OSDetailModal';
 import { OrdemServicoModal } from './OrdemServicoModal';
 import { OSRomaneioModal } from './OSRomaneioModal';
+import { ManualInterativoOSModal } from './ManualInterativoOSModal';
 import { DockMinimizados, MinimizedWindow } from './DockMinimizados';
 import { 
   Wrench, 
@@ -43,6 +44,7 @@ import {
   Sparkles, 
   CheckCircle2, 
   RefreshCw,
+  BookOpen,
   ExternalLink,
   Layers,
   ChevronRight,
@@ -75,6 +77,7 @@ export const OrdensServicoView: React.FC = () => {
   const [selectedOSForRomaneio, setSelectedOSForRomaneio] = useState<OrdemServicoFrota | null>(null);
   const [isRomaneioOpen, setIsRomaneioOpen] = useState<boolean>(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
+  const [isManualOpen, setIsManualOpen] = useState<boolean>(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
   // Janelas minimizadas no Dock
@@ -291,6 +294,24 @@ export const OrdensServicoView: React.FC = () => {
               <span className="hidden sm:inline">Lista</span>
             </button>
           </div>
+
+          {/* Botão Manual Interativo 3D */}
+          <button
+            type="button"
+            onClick={() => setIsManualOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#171A22] via-[#222733] to-[#171A22] hover:bg-[#2A3140] text-slate-200 hover:text-white border border-[#3C4455] hover:border-[#68D346] font-mono font-bold text-xs flex items-center gap-2 shadow-sm transition-all cursor-pointer group"
+            title="Abrir Manual Interativo 3D de Ordens de Serviço"
+          >
+            <div className="w-5 h-5 rounded-lg overflow-hidden shrink-0 border border-[#68D346]/40 shadow-xs">
+              <img 
+                src="/images/manual_os_icon_3d.jpg" 
+                alt="3D Icon" 
+                className="w-full h-full object-cover group-hover:scale-110 transition-transform" 
+              />
+            </div>
+            <span className="hidden sm:inline">Manual da O.S.</span>
+            <span className="px-1.5 py-0.2 rounded text-[8.5px] font-black uppercase bg-[#68D346] text-slate-950">3D</span>
+          </button>
 
           <button
             type="button"
@@ -849,6 +870,12 @@ export const OrdensServicoView: React.FC = () => {
         oficina={selectedOSForRomaneio?.oficina || oficinas.find(o => o.id === selectedOSForRomaneio?.oficina_id) || null}
         emitenteNome={selectedOSForRomaneio?.responsavel_abertura || 'Inspetor de Frotas SPCI'}
         aprovadorNome={userProfile?.name || currentUser?.displayName || 'Gestor Responsável SPCI'}
+      />
+
+      {/* MANUAL INTERATIVO 3D DE ORDENS DE SERVIÇO */}
+      <ManualInterativoOSModal
+        isOpen={isManualOpen}
+        onClose={() => setIsManualOpen(false)}
       />
 
       <DockMinimizados

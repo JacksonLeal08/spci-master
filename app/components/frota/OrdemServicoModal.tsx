@@ -16,6 +16,7 @@ import {
   OrcamentoAditivo
 } from '@/lib/types/frota';
 import { saveOrdemServicoAction, listOficinasAction } from '@/app/actions/frotaActions';
+import { ManualInterativoOSModal } from './ManualInterativoOSModal';
 import { soundNotificationService } from '@/lib/soundNotificationService';
 import { compressImage } from '@/lib/imageCompressor';
 import { 
@@ -113,6 +114,7 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
   const [subcomponentes, setSubcomponentes] = useState<SubcomponenteSelecionado[]>([]);
   const [resumoAnatomico, setResumoAnatomico] = useState<string>('');
   const [isRomaneioOpen, setIsRomaneioOpen] = useState<boolean>(false);
+  const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
 
   // Prazo de Término e Garantia Geral do Serviço
   const [previsaoConclusao, setPrevisaoConclusao] = useState<string>('');
@@ -659,6 +661,18 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsManualModalOpen(true)}
+              className="px-2 py-1 rounded-lg text-slate-300 hover:text-white bg-[#171A21] hover:bg-[#252A36] border border-[#3A4150] hover:border-[#68D346] transition-all cursor-pointer flex items-center gap-1.5 text-[10px] font-bold uppercase mr-1"
+              title="Abrir Manual Interativo 3D de Ordens de Serviço"
+            >
+              <div className="w-4 h-4 rounded overflow-hidden shrink-0 border border-[#68D346]/40">
+                <img src="/images/manual_os_icon_3d.jpg" alt="3D" className="w-full h-full object-cover" />
+              </div>
+              <span className="hidden sm:inline">Manual O.S.</span>
+            </button>
+
             <button
               type="button"
               onClick={handlePrintRomaneio}
@@ -2018,6 +2032,12 @@ export const OrdemServicoModal: React.FC<OrdemServicoModalProps> = ({
         viatura={activeViatura}
         oficina={oficinas.find(o => o.id === oficinaId) || null}
         emitenteNome={userProfile?.name || currentUser?.displayName || 'Inspetor de Frotas SPCI'}
+      />
+
+      {/* Manual Interativo 3D de Ordens de Serviço */}
+      <ManualInterativoOSModal
+        isOpen={isManualModalOpen}
+        onClose={() => setIsManualModalOpen(false)}
       />
     </div>
   );
