@@ -55,10 +55,9 @@ export interface GenerateRomaneioPDFOptions {
 }
 
 /**
- * Gera e abre a via oficial do Relatório da OS (ROMANEIO DE ENCAMINHAMENTO)
- * formatado conforme o padrão de laudos corporativos SPCI (ABNT / Grupo OMG)
+ * Constrói a estrutura HTML de alta fidelidade visual do Romaneio da O.S.
  */
-export function generateRomaneioPDF({
+export function buildRomaneioHTML({
   os,
   viatura,
   oficina,
@@ -66,14 +65,7 @@ export function generateRomaneioPDF({
   emitenteCargo = 'Técnico Operacional de Frotas',
   aprovadorNome = 'Gestor Responsável SPCI',
   aprovadorCargo = 'Coordenador de Manutenção & Ativos'
-}: GenerateRomaneioPDFOptions) {
-  if (typeof window === 'undefined') return;
-
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    alert('Por favor, autorize popups no seu navegador para visualizar e imprimir o Romaneio da O.S.');
-    return;
-  }
+}: GenerateRomaneioPDFOptions): string {
 
   const proto = formatFriendlyRomaneioProtocol(
     os.id || os.numero_os,
@@ -523,7 +515,455 @@ ${os.descricao_motivo || os.descricao_servico || 'Manutenção geral programada 
     </html>
   `;
 
+  return html;
+}
+
+/**
+ * Abre a janela de impressão nativa do navegador com o Romaneio estruturado
+ */
+export function generateRomaneioPDF(options: GenerateRomaneioPDFOptions) {
+  if (typeof window === 'undefined') return;
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Por favor, autorize popups no seu navegador para visualizar e imprimir o Romaneio da O.S.');
+    return;
+  }
+
+  const html = buildRomaneioHTML(options);
   printWindow.document.open();
   printWindow.document.write(html);
   printWindow.document.close();
 }
+
+/**
+ * Gera o documento binário PDF de alta fidelidade visual (vetorial puro via jsPDF)
+ * Retorna o Blob, o objeto File (para Web Share API) e o nome do arquivo.
+ */
+export async function generateRomaneioPDFBlob(
+  options: GenerateRomaneioPDFOptions
+): Promise<{ blob: Blob; file: File; filename: string }> {
+  const { jsPDF } = await import('jspdf');
+
+  const {
+    os,
+    viatura,
+    oficina,
+    emitenteNome = 'Inspetor de Frotas SPCI',
+    emitenteCargo = 'Técnico Operacional de Frotas',
+    aprovadorNome = 'Gestor Responsável SPCI',
+    aprovadorCargo = 'Coordenador de Manutenção & Ativos'
+  } = options;
+
+  const proto = formatFriendlyRomaneioProtocol(
+    os.id || os.numero_os,
+    os.data_abertura || os.created_at,
+    viatura?.prefixo_frota
+  );
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const w = doc.internal.pageSize.getWidth();
+  let y = 10;
+
+  // Header Box Escuro
+  doc.setFillColor(30, 32, 36);
+  doc.rect(10, y, w - 20, 20, 'F');
+
+  doc.setTextColor(183, 243, 101);
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.text('SIGER MASTER • GESTÃO DE FROTAS & SPCI • GRUPO OMG', 14, y + 6);
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(10.5);
+  doc.text('ROMANEIO DE ENCAMINHAMENTO DA O.S.', 14, y + 12);
+
+  doc.setFontSize(7);
+  doc.setTextColor(213, 217, 220);
+  doc.setFont('helvetica', 'normal');
+  doc.text('VISTORIA TÉCNICA, RATEIO DE COMPONENTES & APROVAÇÃO', 14, y + 16.5);
+
+  // Bloco de Protocolo & Informações à Direita
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(183, 243, 101);
+  doc.text('PROTOCOLO:', w - 65, y + 6);
+  doc.setTextColor(255, 255, 255);
+  doc.text(proto.shortCode, w - 43, y + 6);
+
+  const prioridade = (os.prioridade || 'NORMAL').toUpperCase();
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(213, 217, 220);
+  doc.text(`EMISSÃO: ${proto.dateFormatted} ${proto.timeFormatted}`, w - 65, y + 11);
+  doc.text(`CRITICIDADE: ${prioridade}`, w - 65, y + 15.5);
+
+  y += 20;
+  // Faixa de destaque verde SIGER
+  doc.setDrawColor(104, 211, 70);
+  doc.setLineWidth(0.8);
+  doc.line(10, y, w - 10, y);
+  y += 4;
+
+  // Grid 2 Colunas: Viatura e Oficina
+  const colW = (w - 20 - 4) / 2;
+  const col1X = 10;
+  const col2X = 10 + colW + 4;
+  const cardH = 28;
+
+  // Card 1: Viatura
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(col1X, y, colW, cardH, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text('1. DADOS DA VIATURA & OPERAÇÃO', col1X + 4, y + 5);
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Prefixo: ', col1X + 4, y + 10);
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.text(viatura?.prefixo_frota || 'VIATURA', col1X + 16, y + 10);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Placa: ', col1X + 45, y + 10);
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.text(viatura?.placa || 'N/A', col1X + 54, y + 10);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  const modeloTxt = `${viatura?.marca || ''} ${viatura?.modelo || ''}`.trim() || 'Não especificado';
+  doc.text(`Modelo: ${modeloTxt.slice(0, 35)}`, col1X + 4, y + 15);
+  const odomTxt = Number(os.odometro_km || viatura?.odometro_atual_km || 0).toLocaleString('pt-BR');
+  doc.text(`Odômetro Entrada: ${odomTxt} km`, col1X + 4, y + 20);
+  doc.text(`Base Operacional: ${viatura?.contrato_id || os.contrato_id || 'PARAUAPEBAS'}`, col1X + 4, y + 25);
+
+  // Card 2: Oficina
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(col2X, y, colW, cardH, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text('2. DESTINO & EXECUÇÃO', col2X + 4, y + 5);
+
+  const ofcNome = oficina?.nome_fantasia || oficina?.razao_social || (os.tipo_os === 'INTERNA' ? 'Oficina Interna da Base SIGER' : 'Oficina Homologada Externa');
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Estabelecimento:', col2X + 4, y + 10);
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.text(ofcNome.slice(0, 32), col2X + 27, y + 10);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text(`CNPJ: ${oficina?.cnpj || 'Cadastrada no Contrato'}`, col2X + 4, y + 15);
+  doc.text(`Contato: ${oficina?.telefone || '(94) 99100-0000'}`, col2X + 4, y + 20);
+  const natTxt = os.tipo_manutencao || os.natureza_manutencao || 'CORRETIVA';
+  doc.text(`Natureza: ${natTxt} (${os.tipo_os || 'EXTERNA'})`, col2X + 4, y + 25);
+
+  y += cardH + 4;
+
+  // Título Seção 3
+  doc.setFillColor(241, 245, 249);
+  doc.rect(10, y, w - 20, 6, 'F');
+  doc.setDrawColor(175, 16, 26);
+  doc.setLineWidth(0.8);
+  doc.line(10, y, 10, y + 6);
+
+  const componentes: SubcomponenteSelecionado[] = (os.itens_componentes_json || []) as SubcomponenteSelecionado[];
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`3. COMPONENTES & SERVIÇOS A MANUTENIR (${componentes.length} ITENS)`, 13, y + 4.2);
+
+  y += 7;
+
+  // Cabeçalho da Tabela
+  doc.setFillColor(30, 41, 59);
+  doc.rect(10, y, w - 20, 5.5, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(6);
+  doc.setFont('helvetica', 'bold');
+  doc.text('MACRO-SISTEMA', 12, y + 3.8);
+  doc.text('SUBCOMPONENTE', 55, y + 3.8);
+  doc.text('AÇÃO REQUERIDA', 110, y + 3.8);
+  doc.text('POSIÇÃO', 140, y + 3.8);
+  doc.text('QTD', 165, y + 3.8);
+  doc.text('VALOR EST.', 180, y + 3.8);
+
+  y += 5.5;
+
+  // Linhas da Tabela
+  if (componentes.length === 0) {
+    doc.setFillColor(255, 255, 255);
+    doc.rect(10, y, w - 20, 6, 'F');
+    doc.setTextColor(100, 116, 139);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(6.5);
+    doc.text('Nenhum subcomponente anatômico flegado especificamente. Verifique o relato descritivo abaixo.', 12, y + 4);
+    y += 6;
+  } else {
+    componentes.slice(0, 12).forEach((c, idx) => {
+      const rowBg = idx % 2 === 0 ? 255 : 248;
+      doc.setFillColor(rowBg, rowBg, rowBg);
+      doc.rect(10, y, w - 20, 5.5, 'F');
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6);
+      doc.setTextColor(15, 23, 42);
+      doc.text((c.nome_componente_macro || 'Macro').slice(0, 24), 12, y + 3.8);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text((c.nome_subcomponente || 'Subcomponente').slice(0, 32), 55, y + 3.8);
+
+      doc.setTextColor(37, 99, 235);
+      doc.text((c.acao || 'SUBSTITUICAO').slice(0, 18), 110, y + 3.8);
+
+      doc.setTextColor(71, 85, 105);
+      doc.setFont('helvetica', 'normal');
+      doc.text((c.posicao || 'PADRAO').slice(0, 14), 140, y + 3.8);
+      doc.text(`${c.quantidade || 1}`, 165, y + 3.8);
+
+      const subtotal = (c.quantidade || 1) * (c.valor_unitario_estimado || 0);
+      const valTxt = subtotal > 0 ? subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'A orçar';
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(valTxt, 180, y + 3.8);
+
+      y += 5.5;
+    });
+
+    if (componentes.length > 12) {
+      doc.setFillColor(241, 245, 249);
+      doc.rect(10, y, w - 20, 5, 'F');
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(6);
+      doc.text(`... e mais ${componentes.length - 12} subcomponentes listados no sistema.`, 12, y + 3.5);
+      y += 5;
+    }
+  }
+
+  y += 3;
+
+  // Relato da Falha / Sintomas
+  const relato = os.descricao_motivo || os.descricao_servico || 'Não especificado na abertura.';
+  doc.setFillColor(252, 252, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(10, y, w - 20, 14, 1.5, 1.5, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('RELATO DO PROBLEMA / SINTOMAS REGISTRADOS:', 13, y + 4);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(30, 41, 59);
+  const splitRelato = doc.splitTextToSize(relato, w - 26);
+  doc.text(splitRelato.slice(0, 2), 13, y + 8.5);
+
+  y += 17;
+
+  // Resumo Financeiro
+  const fBoxW = (w - 20 - 9) / 4;
+  const custoPecas = Number(os.custo_pecas || 0);
+  const custoMaoObra = Number(os.custo_mao_de_obra || 0);
+  const custoPneus = Number(os.custo_pneus || 0);
+  const custoTotal = Number(os.custo_total || os.valor_estimado || (custoPecas + custoMaoObra + custoPneus));
+
+  const fBoxes = [
+    { lbl: 'PEÇAS', val: custoPecas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) },
+    { lbl: 'MÃO DE OBRA', val: custoMaoObra.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) },
+    { lbl: 'PNEUS', val: custoPneus.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) },
+    { lbl: 'TOTAL ESTIMADO', val: custoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), highlight: true }
+  ];
+
+  fBoxes.forEach((b, i) => {
+    const bx = 10 + (fBoxW + 3) * i;
+    doc.setFillColor(b.highlight ? 240 : 248, b.highlight ? 253 : 250, b.highlight ? 244 : 252);
+    doc.setDrawColor(b.highlight ? 21 : 203, b.highlight ? 128 : 213, b.highlight ? 61 : 225);
+    doc.roundedRect(bx, y, fBoxW, 11, 1.5, 1.5, 'FD');
+
+    doc.setFontSize(5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(100, 116, 139);
+    doc.text(b.lbl, bx + fBoxW / 2, y + 3.8, { align: 'center' });
+
+    doc.setFontSize(7.5);
+    doc.setTextColor(b.highlight ? 21 : 15, b.highlight ? 128 : 23, b.highlight ? 61 : 42);
+    doc.text(b.val, bx + fBoxW / 2, y + 8.5, { align: 'center' });
+  });
+
+  y += 15;
+
+  // Assinaturas Formais
+  const sBoxW = (w - 20 - 10) / 3;
+  const signs = [
+    { title: emitenteNome, sub: emitenteCargo, role: 'Emitente / Inspetor Solicitante' },
+    { title: oficina?.responsavel || oficina?.contato_responsavel || 'Responsável Técnico', sub: ofcNome.slice(0, 24), role: 'Oficina Credenciada (Vistoria)' },
+    { title: aprovadorNome, sub: aprovadorCargo, role: 'Aprovador / Gestor de Frota SPCI' }
+  ];
+
+  signs.forEach((s, i) => {
+    const sx = 10 + (sBoxW + 5) * i;
+    doc.setDrawColor(71, 85, 105);
+    doc.setLineWidth(0.3);
+    doc.line(sx, y + 8, sx + sBoxW, y + 8);
+
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(s.title.slice(0, 28), sx + sBoxW / 2, y + 11.5, { align: 'center' });
+
+    doc.setFontSize(5.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(s.sub.slice(0, 32), sx + sBoxW / 2, y + 14.5, { align: 'center' });
+    doc.text(s.role, sx + sBoxW / 2, y + 17.5, { align: 'center' });
+  });
+
+  // Footer Corporativo
+  doc.setFontSize(5.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text('SIGER Master • Sistema de Gestão Contra Incêndio & Frotas • Complexo Carajás', 10, 290);
+  doc.text(`Autenticação: ${os.id ? `UUID-${os.id.slice(0, 8)}` : 'SISTEMA-INTEGRADO'}`, w / 2, 290, { align: 'center' });
+  doc.text('Página 1 de 1', w - 12, 290, { align: 'right' });
+
+  const blob = doc.output('blob');
+  const filename = `Romaneio_OS_${proto.shortCode.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+  const file = new File([blob], filename, { type: 'application/pdf' });
+
+  return { blob, file, filename };
+}
+
+/**
+ * Dispara o download direto do PDF do Romaneio na máquina do usuário
+ */
+export async function downloadRomaneioPDF(options: GenerateRomaneioPDFOptions): Promise<string> {
+  const { blob, filename } = await generateRomaneioPDFBlob(options);
+  if (typeof window !== 'undefined') {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+  return filename;
+}
+
+/**
+ * Compartilhamento Híbrido via WhatsApp (Opções 1 + 2):
+ * - Mobile: Anexa o arquivo PDF fisicamente na conversa via Web Share API (navigator.share)
+ * - Desktop: Baixa o PDF no computador e abre o WhatsApp com a mensagem estruturada + link online
+ */
+export async function shareRomaneioWhatsAppHybrid(
+  options: GenerateRomaneioPDFOptions & {
+    recipientPhone?: string;
+    customMessage?: string;
+    baseUrl?: string;
+  }
+): Promise<{
+  sharedVia: 'native_share' | 'download_and_whatsapp';
+  filename: string;
+  whatsAppUrl: string;
+}> {
+  const {
+    os,
+    viatura,
+    oficina,
+    recipientPhone,
+    customMessage,
+    baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://spci-master.vercel.app'
+  } = options;
+
+  const proto = formatFriendlyRomaneioProtocol(
+    os.id || os.numero_os,
+    os.data_abertura || os.created_at,
+    viatura?.prefixo_frota
+  );
+
+  const { blob, file, filename } = await generateRomaneioPDFBlob(options);
+
+  const prioridadeEmoji = os.prioridade === 'EMERGENCIA' ? '🔴' : os.prioridade === 'URGENTE' ? '🟡' : '🟢';
+  const viaturaLabel = viatura ? `${viatura.prefixo_frota || ''} • Placa ${viatura.placa || ''}` : 'Viatura Operacional';
+  const oficinaNome = oficina?.nome_fantasia || oficina?.razao_social || (os.tipo_os === 'INTERNA' ? 'Oficina Interna Base SIGER' : 'Oficina Homologada');
+  const valorTotal = Number(os.custo_total || os.valor_estimado || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const linkRomaneio = `${baseUrl}/frota/os?id=${os.id || os.numero_os}&view=romaneio`;
+  const linkAprovacao = `${baseUrl}/frota/os?id=${os.id || os.numero_os}&action=approve`;
+
+  const baseText = customMessage || `🚨 *ORDEM DE SERVIÇO & ROMANEIO - SIGER MASTER*
+📋 *Protocolo:* ${proto.shortCode}
+🚒 *Viatura:* ${viaturaLabel}
+${prioridadeEmoji} *Criticidade:* ${os.prioridade || 'NORMAL'}
+🏢 *Oficina:* ${oficinaNome}
+💰 *Orçamento Estimado:* ${valorTotal}
+
+📄 *Visualizar Romaneio Online:*
+👉 ${linkRomaneio}
+
+✅ *Aprovar ou Gerenciar O.S.:*
+👉 ${linkAprovacao}`;
+
+  // 1. Tenta compartilhamento nativo com o arquivo PDF (Mobile Android / iOS)
+  const canShareFiles = typeof navigator !== 'undefined' && 
+    typeof navigator.canShare === 'function' && 
+    navigator.canShare({ files: [file] });
+
+  if (canShareFiles) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: `Romaneio de O.S. - ${proto.shortCode}`,
+        text: baseText
+      });
+      return { sharedVia: 'native_share', filename, whatsAppUrl: '' };
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        return { sharedVia: 'native_share', filename, whatsAppUrl: '' };
+      }
+      console.warn('[shareRomaneioWhatsAppHybrid] Fallback para download + WhatsApp:', err);
+    }
+  }
+
+  // 2. Fallback para Desktop (PC):
+  // Faz o download automático do PDF para a máquina do usuário
+  if (typeof window !== 'undefined') {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  // Abre a conversa no WhatsApp com o link e a nota instruindo a arrastar o PDF anexado
+  const textWithNote = `${baseText}
+
+📎 *ARQUIVO EM ANEXO:* O PDF oficial *${filename}* foi baixado no seu dispositivo. Arraste-o para esta conversa para anexar o documento formal.`;
+
+  const cleanPhone = recipientPhone ? recipientPhone.replace(/\D/g, '') : '';
+  const waUrl = cleanPhone 
+    ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(textWithNote)}`
+    : `https://api.whatsapp.com/send?text=${encodeURIComponent(textWithNote)}`;
+
+  if (typeof window !== 'undefined') {
+    window.open(waUrl, '_blank');
+  }
+
+  return { sharedVia: 'download_and_whatsapp', filename, whatsAppUrl: waUrl };
+}
+

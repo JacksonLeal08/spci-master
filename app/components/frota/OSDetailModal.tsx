@@ -49,6 +49,7 @@ import {
   Receipt
 } from 'lucide-react';
 import { OSRomaneioModal } from './OSRomaneioModal';
+import { shareRomaneioWhatsAppHybrid } from '@/lib/osRomaneioReports';
 
 interface OSDetailModalProps {
   os: OrdemServicoFrota | null;
@@ -162,14 +163,26 @@ export const OSDetailModal: React.FC<OSDetailModalProps> = ({
     }
   };
 
-  // Disparo manual de WhatsApp
+  // Disparo manual de WhatsApp com Romaneio Anexado (Abordagem Híbrida)
   const handleSendWhatsApp = async () => {
+    if (!os?.id) return;
     setIsProcessing(true);
     try {
       const res = await dispatchOSAlertsAction(os.id, ['WHATSAPP']);
-      if (res.success && res.whatsAppPayload?.url) {
-        window.open(res.whatsAppPayload.url, '_blank');
-        triggerSuccessNotification('Alerta WhatsApp Gerado!', 'Janela de envio do WhatsApp aberta com mensagem pré-formatada.');
+      if (res.success) {
+        const shareRes = await shareRomaneioWhatsAppHybrid({
+          os,
+          viatura: os.viatura,
+          oficina: os.oficina,
+          recipientPhone: res.whatsAppPayload?.recipientNumber,
+          customMessage: res.whatsAppPayload?.text
+        });
+
+        if (shareRes.sharedVia === 'native_share') {
+          triggerSuccessNotification('WhatsApp / Romaneio Aberto!', 'Arquivo PDF anexado no menu de compartilhamento do seu dispositivo.');
+        } else {
+          triggerSuccessNotification('Alerta WhatsApp & Romaneio Gerado!', `PDF ${shareRes.filename} baixado e conversa aberta no WhatsApp.`);
+        }
       } else {
         alert(res.error || 'Erro ao gerar alerta WhatsApp');
       }

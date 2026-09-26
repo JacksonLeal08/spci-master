@@ -18,11 +18,17 @@ import {
   ShieldCheck, 
   Layers, 
   Send,
-  AlertTriangle
+  AlertTriangle,
+  Download
 } from 'lucide-react';
 import { OrdemServicoFrota, Viatura, OficinaPrestador } from '@/lib/types/frota';
 import { SubcomponenteSelecionado } from '@/lib/types/vehicleAnatomy';
-import { formatFriendlyRomaneioProtocol, generateRomaneioPDF } from '@/lib/osRomaneioReports';
+import { 
+  formatFriendlyRomaneioProtocol, 
+  generateRomaneioPDF, 
+  downloadRomaneioPDF, 
+  shareRomaneioWhatsAppHybrid 
+} from '@/lib/osRomaneioReports';
 import { dispatchOSAlertsAction } from '@/app/actions/osWorkflowActions';
 import { useSpci } from '@/app/context/SpciContext';
 
@@ -67,20 +73,45 @@ export const OSRomaneioModal: React.FC<OSRomaneioModalProps> = ({
 
   const formatBRL = (val: number) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-  // Disparo manual de WhatsApp com o Romaneio
+  // Disparo Híbrido de WhatsApp com Romaneio Anexado (Opções 1 + 2)
   const handleShareWhatsApp = async () => {
-    if (!os.id) return;
+    if (!os?.id) return;
     setIsSendingAlert(true);
     try {
-      const res = await dispatchOSAlertsAction(os.id, ['WHATSAPP']);
-      if (res.success && res.whatsAppPayload?.url) {
-        window.open(res.whatsAppPayload.url, '_blank');
-        triggerSuccessNotification('WhatsApp com Romaneio Gerado!', 'Mensagem com resumo do romaneio e link aberta com sucesso.');
+      const res = await shareRomaneioWhatsAppHybrid({
+        os,
+        viatura,
+        oficina,
+        emitenteNome,
+        aprovadorNome
+      });
+      if (res.sharedVia === 'native_share') {
+        triggerSuccessNotification('WhatsApp / Romaneio Aberto!', 'Arquivo PDF anexado no menu de compartilhamento do seu dispositivo.');
       } else {
-        alert(res.error || 'Erro ao gerar compartilhamento via WhatsApp.');
+        triggerSuccessNotification('Romaneio Baixado & WhatsApp Aberto!', `O arquivo ${res.filename} foi salvo em Downloads e a conversa foi iniciada.`);
       }
     } catch (e: any) {
-      alert('Erro: ' + e?.message);
+      alert('Erro ao compartilhar via WhatsApp: ' + e?.message);
+    } finally {
+      setIsSendingAlert(false);
+    }
+  };
+
+  // Download direto do PDF no dispositivo
+  const handleDownloadPDF = async () => {
+    if (!os) return;
+    try {
+      setIsSendingAlert(true);
+      const filename = await downloadRomaneioPDF({
+        os,
+        viatura,
+        oficina,
+        emitenteNome,
+        aprovadorNome
+      });
+      triggerSuccessNotification('PDF Gerado!', `Arquivo ${filename} baixado com sucesso.`);
+    } catch (e: any) {
+      alert('Erro ao gerar download: ' + e?.message);
     } finally {
       setIsSendingAlert(false);
     }
@@ -169,11 +200,22 @@ export const OSRomaneioModal: React.FC<OSRomaneioModalProps> = ({
 
             <button
               type="button"
+              onClick={handleDownloadPDF}
+              disabled={isSendingAlert}
+              className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Baixar arquivo PDF no dispositivo"
+            >
+              <Download className="w-3.5 h-3.5 text-[#B7F365]" />
+              <span>Baixar PDF</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handlePrint}
               className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Imprimir / PDF</span>
+              <span>Imprimir</span>
             </button>
 
             <button
@@ -408,12 +450,23 @@ export const OSRomaneioModal: React.FC<OSRomaneioModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={handleDownloadPDF}
+              disabled={isSendingAlert}
+              className="px-3.5 py-2 rounded-xl bg-slate-200 dark:bg-[#282A2F] hover:bg-slate-300 dark:hover:bg-[#3C3F45] text-slate-800 dark:text-[#D5D9DC] font-bold text-xs shadow-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              <Download className="w-3.5 h-3.5 text-[#68D346]" />
+              <span>Baixar PDF</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleShareWhatsApp}
               disabled={isSendingAlert}
               className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              title="No celular anexa o PDF direto; no PC baixa o arquivo e abre a conversa"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>WhatsApp + Romaneio</span>
+              <span>Enviar WhatsApp (com PDF)</span>
             </button>
 
             <button
